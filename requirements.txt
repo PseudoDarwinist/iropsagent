@@ -1,0 +1,9 @@
+langchain
+python-dotenv
+requests # Already needed for FlightAware, but good to ensure
+amadeus # For Amadeus API
+google-generativeai # If you still plan to use any Gemini models
+google-adk
+litellm
+httpx
+

@@ -3,6 +3,8 @@ import requests
 import json
 from amadeus import Client, ResponseError
 from dotenv import load_dotenv
+from ..models import get_user_by_email, get_upcoming_bookings
+
 
 # Load environment variables from .env file
 load_dotenv(override=True)
@@ -167,4 +169,46 @@ def find_alternative_flights(origin: str, destination: str, date: str) -> str:
     except Exception as e:
         error_msg = f"UNEXPECTED ERROR in find_alternative_flights: {str(e)}"
         print(error_msg)
-        return error_msg 
+        return error_msg
+
+def check_my_flights(user_email: str) -> str:
+    """
+    Check all upcoming flights for a user.
+    
+    Args:
+        user_email: The email address of the user
+        
+    Returns:
+        String listing all upcoming flights or appropriate message
+    """
+    print(f"\n=== CHECK_MY_FLIGHTS CALLED ===")
+    print(f"User email: {user_email}")
+    
+    try:
+        # Get user from database
+        user = get_user_by_email(user_email)
+        if not user:
+            return f"No account found for {user_email}. Please register first."
+        
+        # Get upcoming bookings
+        bookings = get_upcoming_bookings(user.user_id)
+        
+        if not bookings:
+            return "You have no upcoming flights in our system."
+        
+        # Format response
+        result = f"Your upcoming flights:\n\n"
+        for booking in bookings:
+            result += f"✈️ {booking.flight_number}\n"
+            result += f"   Route: {booking.origin} → {booking.destination}\n"
+            result += f"   Date: {booking.departure_date.strftime('%A, %B %d, %Y')}\n"
+            result += f"   Time: {booking.departure_date.strftime('%I:%M %p')}\n"
+            result += f"   PNR: {booking.pnr}\n"
+            result += f"   Status: {booking.status}\n\n"
+        
+        return result.strip()
+        
+    except Exception as e:
+        error_msg = f"ERROR checking flights: {str(e)}"
+        print(error_msg)
+        return error_msg

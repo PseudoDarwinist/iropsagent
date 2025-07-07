@@ -4,9 +4,24 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 # Import the agent from the agent package
-from flight_agent.agent import root_agent
+from flight_agent.agents.coordinator import root_agent
 # Import the tools from the agent package
-from flight_agent.tools import get_flight_status, find_alternative_flights
+
+
+# Import ALL tools that agents might use
+from flight_agent.tools.flight_tools import (
+    get_flight_status, 
+    find_alternative_flights,
+    check_my_flights
+)
+from flight_agent.tools.booking_tools import (
+    scan_email_for_bookings,
+    manual_booking_entry
+)
+from flight_agent.tools.monitor_tools import (
+    check_all_monitored_flights
+)
+
 
 # --- RUNNING THE SYSTEM PROGRAMMATICALLY ---
 async def main():
@@ -32,7 +47,14 @@ async def main():
     runner = Runner(
         agent=root_agent,
         session_service=session_service,
-        tools=[get_flight_status, find_alternative_flights]
+        tools=[  # Just include all tools
+            get_flight_status,
+            find_alternative_flights,
+            check_my_flights,
+            scan_email_for_bookings,
+            manual_booking_entry,
+            check_all_monitored_flights
+        ]
     )
     print("Runner initialized.")
 

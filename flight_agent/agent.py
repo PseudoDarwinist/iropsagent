@@ -1,7 +1,8 @@
 import os
 from google.adk.agents import LlmAgent
 from dotenv import load_dotenv
-from .tools import get_flight_status, find_alternative_flights
+from .tools import get_flight_status, find_alternative_flights, check_my_flights
+
 
 # Load environment variables
 load_dotenv(override=True)
@@ -22,14 +23,14 @@ print("=== Configuration Complete ===")
 # No need for LiteLlm wrapper when using Google AI Studio
 root_agent = LlmAgent(
     name="FlightDisruptionCoordinator",
-    # Use direct model string for Google AI Studio (per official docs)
     model="gemini-2.5-flash",
     instruction=(
         "You are a flight disruption coordinator that helps passengers with flight issues. "
         "When a user asks about flight status, you MUST call the get_flight_status function. "
         "When a user asks about alternative flights, you MUST call the find_alternative_flights function. "
+        "When a user asks about their flights, you MUST call the check_my_flights function with their email. "
         "NEVER provide flight information without calling the appropriate tools first. "
         "Always use the tools to get real-time data."
     ),
-    tools=[get_flight_status, find_alternative_flights],
-) 
+    tools=[get_flight_status, find_alternative_flights, check_my_flights],
+)

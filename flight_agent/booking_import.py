@@ -12,15 +12,6 @@ import base64
 from .models import create_booking, get_user_by_email, EmailConnection, SessionLocal
 
 
-
-# Turn the BookingImporter class methods into tool functions:
-def scan_email_for_bookings(user_email: str, password: str) -> str:
-    """Tool function for booking import agent"""
-    importer = BookingImporter()
-    bookings = importer.import_from_imap(user_email, password)
-    return f"Found {len(bookings)} bookings: {bookings}"
-
-
 class BookingImporter:
     """Import flight bookings from email"""
     

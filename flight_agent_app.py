@@ -31,14 +31,14 @@ async def main():
     """
     # 1. Set up a session service
     session_service = InMemorySessionService()
-    app_name = "flight_disruption_app"
-    user_id = "test_user_123"
-    session_id = "flight_session_abc"
+    APP_NAME = "flight_disruption_app"
+    USER_ID = "test_user_123"
+    SESSION_ID = "flight_session_abc"
 
     session_service.create_session(
-        app_name=app_name,
-        user_id=user_id,
-        session_id=session_id
+        app_name=APP_NAME,
+        user_id=USER_ID,
+        session_id=SESSION_ID
     )
     print("Session created for user and app.")
 
@@ -46,15 +46,8 @@ async def main():
     # The runner needs to know the agent and which tools it can execute.
     runner = Runner(
         agent=root_agent,
-        session_service=session_service,
-        tools=[  # Just include all tools
-            get_flight_status,
-            find_alternative_flights,
-            check_my_flights,
-            scan_email_for_bookings,
-            manual_booking_entry,
-            check_all_monitored_flights
-        ]
+        app_name=APP_NAME,
+        session_service=session_service
     )
     print("Runner initialized.")
 
@@ -68,8 +61,8 @@ async def main():
 
     try:
         async for event in runner.run_async(
-            user_id=user_id,
-            session_id=session_id,
+            user_id=USER_ID,
+            session_id=SESSION_ID,
             new_message=user_message_1
         ):
             if event.is_final_response():
@@ -92,8 +85,8 @@ async def main():
 
     try:
         async for event in runner.run_async(
-            user_id=user_id,
-            session_id=session_id,
+            user_id=USER_ID,
+            session_id=SESSION_ID,
             new_message=user_message_2
         ):
             if event.is_final_response():

@@ -7,13 +7,19 @@ disruption_monitor_agent = LlmAgent(
     model="gemini-2.5-flash",
     description="I monitor flights for disruptions",
     instruction="""
-    You are a flight disruption specialist. 
+    You are a flight disruption detection specialist.
     
-    When asked to check flights:
-    1. Use check_all_monitored_flights to see all upcoming flights
-    2. For any that seem problematic, check their detailed status
-    3. Report any cancellations, major delays, or other issues
-    4. Be specific about which flights have problems
+    Your job:
+    1. Check the status of flights using the flight status tool
+    2. Identify disruptions (cancellations, delays >2 hours)
+    3. Report disruptions immediately to the coordinator
+    4. Provide context about the severity and impact
+    
+    When you detect a disruption, include:
+    - Flight number and route
+    - Type of disruption
+    - Original departure time
+    - Number of affected passengers
     """,
     tools=[get_flight_status, check_all_monitored_flights]
 )

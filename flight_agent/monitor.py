@@ -4,7 +4,8 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Dict
 import json
 from .models import SessionLocal, Booking, DisruptionEvent, User
-from .tools import get_flight_status, find_alternative_flights
+from .tools.flight_tools import get_flight_status, find_alternative_flights
+from .tools.communication_tools import send_disruption_sms
 from google.adk.agents import LlmAgent
 import uuid
 
@@ -159,8 +160,8 @@ class DisruptionMonitor:
                 event.rebooking_options = {"alternatives": alternatives}
                 event.rebooking_status = "IN_PROGRESS"
                 
-                # Notify user (in real system, would send email/SMS)
-                await self._notify_user(booking, event, alternatives)
+                # Notify user (now includes SMS for urgent disruptions)
+                await self._notify_user(booking, event, alternatives, analysis['severity'])
             
             db.commit()
             print(f"    ✅ Disruption handled, user notified")
@@ -169,16 +170,50 @@ class DisruptionMonitor:
             print(f"    ❌ Error handling disruption: {e}")
             db.rollback()
     
-    async def _notify_user(self, booking: Booking, event: DisruptionEvent, alternatives: str):
-        """Notify user of disruption and alternatives"""
-        # In real implementation, would send email/SMS
-        # For now, just log
-        print(f"\n    📧 NOTIFICATION TO USER {booking.user_id}:")
-        print(f"    Your flight {booking.flight_number} has been {event.disruption_type}")
-        print(f"    We found these alternatives:")
-        print(f"    {alternatives}\n")
-        
-        event.user_notified = True
+    async def _notify_user(self, booking: Booking, event: DisruptionEvent, alternatives: str, severity: str = "major"):
+        """Notify user of disruption and alternatives via email and SMS for urgent cases"""
+        try:
+            # Always log the notification
+            print(f"\n    📧 NOTIFICATION TO USER {booking.user_id}:")
+            print(f"    Your flight {booking.flight_number} has been {event.disruption_type}")
+            print(f"    We found these alternatives:")
+            print(f"    {alternatives}\n")
+            
+            # Send SMS notification for urgent disruptions
+            if severity == "major" and event.disruption_type in ["CANCELLED", "DIVERTED"]:
+                print(f"    📱 Sending urgent SMS notification...")
+                
+                # Format departure time for SMS
+                original_time = booking.departure_date.strftime("%m/%d %I:%M%p")
+                new_time = None
+                if event.new_departure:
+                    new_time = event.new_departure.strftime("%m/%d %I:%M%p")
+                
+                # Send SMS notification
+                sms_result = send_disruption_sms(
+                    user_id=booking.user_id,
+                    disruption_type=event.disruption_type,
+                    flight_number=booking.flight_number,
+                    origin=booking.origin,
+                    destination=booking.destination,
+                    original_time=original_time,
+                    new_time=new_time
+                )
+                
+                if sms_result["success"]:
+                    print(f"    ✅ SMS sent successfully (SID: {sms_result.get('message_sid', 'N/A')})")
+                else:
+                    print(f"    ⚠️  SMS failed: {sms_result['error']}")
+            
+            elif severity == "major":
+                print(f"    ℹ️  Major disruption detected but SMS not sent (disruption type: {event.disruption_type})")
+            else:
+                print(f"    ℹ️  Minor disruption - email notification only")
+            
+            event.user_notified = True
+            
+        except Exception as e:
+            print(f"    ❌ Error sending notifications: {e}")
 
 
 # Standalone monitoring service

@@ -22,7 +22,7 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
     phone = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
-    preferences = Column(JSON, default={})  # seat preference, airline preference, etc.
+    preferences = Column(JSON, default={})  # seat preference, airline preference, SMS preferences, etc.
     
     # Relationships
     bookings = relationship("Booking", back_populates="user")
@@ -169,5 +169,100 @@ def get_upcoming_bookings(user_id: str = None):
         if user_id:
             query = query.filter(Booking.user_id == user_id)
         return query.all()
+    finally:
+        db.close()
+
+
+def update_user_phone(user_id: str, phone: str) -> bool:
+    """Update user's phone number"""
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            return False
+        
+        user.phone = phone
+        db.commit()
+        return True
+    except Exception as e:
+        print(f"Error updating phone number: {e}")
+        db.rollback()
+        return False
+    finally:
+        db.close()
+
+
+def enable_sms_notifications(user_id: str, severity_levels: list = None) -> bool:
+    """Enable SMS notifications for a user"""
+    if severity_levels is None:
+        severity_levels = ["major"]  # Default to major disruptions only
+    
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            return False
+        
+        if not user.preferences:
+            user.preferences = {}
+        
+        user.preferences["sms_notifications"] = {
+            "enabled": True,
+            "severity_levels": severity_levels,
+            "quiet_hours": {"enabled": False, "start": "22:00", "end": "08:00"}
+        }
+        
+        db.commit()
+        return True
+    except Exception as e:
+        print(f"Error enabling SMS notifications: {e}")
+        db.rollback()
+        return False
+    finally:
+        db.close()
+
+
+def disable_sms_notifications(user_id: str) -> bool:
+    """Disable SMS notifications for a user"""
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            return False
+        
+        if not user.preferences:
+            user.preferences = {}
+        
+        user.preferences["sms_notifications"] = {
+            "enabled": False,
+            "severity_levels": [],
+            "quiet_hours": {"enabled": False, "start": "22:00", "end": "08:00"}
+        }
+        
+        db.commit()
+        return True
+    except Exception as e:
+        print(f"Error disabling SMS notifications: {e}")
+        db.rollback()
+        return False
+    finally:
+        db.close()
+
+
+def get_user_sms_preferences(user_id: str) -> dict:
+    """Get user's SMS notification preferences"""
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            return {"error": "User not found"}
+        
+        return user.preferences.get("sms_notifications", {
+            "enabled": False,
+            "severity_levels": ["major"],
+            "quiet_hours": {"enabled": False, "start": "22:00", "end": "08:00"}
+        })
+    except Exception as e:
+        return {"error": f"Database error: {str(e)}"}
     finally:
         db.close()

@@ -21,6 +21,12 @@ from flight_agent.tools.booking_tools import (
 from flight_agent.tools.monitor_tools import (
     check_all_monitored_flights
 )
+from flight_agent.tools.communication_tools import (
+    process_high_priority_disruptions,
+    test_sms_functionality,
+    update_user_sms_preferences,
+    get_sms_status
+)
 
 
 # --- RUNNING THE SYSTEM PROGRAMMATICALLY ---
@@ -100,13 +106,40 @@ async def main():
         print(f"\nAn error occurred during agent execution: {e}")
         print("Please ensure your middleware LLM endpoint is running, accessible, and correctly configured.")
 
+    # Example 3: Test SMS functionality
+    user_message_text_3 = "Process any high-priority flight disruptions and send SMS alerts"
+    user_message_3 = types.Content(role="user", parts=[types.Part(text=user_message_text_3)])
+
+    print(f"\n--- Conversation 3 (SMS Notifications) ---")
+    print(f"User: {user_message_text_3}")
+
+    try:
+        async for event in runner.run_async(
+            user_id=USER_ID,
+            session_id=SESSION_ID,
+            new_message=user_message_3
+        ):
+            if event.is_final_response():
+                print(f"Agent: {event.content.parts[0].text}")
+            elif event.is_agent_action():
+                print(f"Agent Action: {event.tool_code_log.tool_name}({event.tool_code_log.args})")
+            elif event.is_observation():
+                print(f"Observation: {event.tool_code_log.result}")
+
+    except Exception as e:
+        print(f"\nAn error occurred during agent execution: {e}")
+        print("Please ensure your middleware LLM endpoint is running, accessible, and correctly configured.")
+
 
 if __name__ == "__main__":
     # To run this script:
-    # 1. Ensure your .env file is set up correctly.
+    # 1. Ensure your .env file is set up correctly with Twilio credentials.
     # 2. Run 'pip3 install -r requirements.txt'
     # 3. Execute: python3 flight_agent_app.py
     asyncio.run(main())
 
     # To run with the ADK web UI (for interactive chat):
     # adk web
+    
+    # To test SMS functionality separately:
+    # python3 test_sms_notifications.py

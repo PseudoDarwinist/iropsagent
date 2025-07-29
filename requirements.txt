@@ -6,4 +6,5 @@ google-generativeai # If you still plan to use any Gemini models
 google-adk
 litellm
 httpx
-
+twilio # For SMS notifications
+sqlalchemy # For database models

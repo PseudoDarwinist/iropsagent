@@ -5,6 +5,7 @@ from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime
 import os
 from dotenv import load_dotenv
+import uuid
 
 load_dotenv()
 
@@ -22,7 +23,7 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
     phone = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
-    preferences = Column(JSON, default={})  # seat preference, airline preference, etc.
+    preferences = Column(JSON, default={})  # seat preference, airline preference, SMS preferences, etc.
     
     # Relationships
     bookings = relationship("Booking", back_populates="user")
@@ -80,6 +81,7 @@ class DisruptionEvent(Base):
     rebooking_options = Column(JSON)  # Store alternative flight options
     selected_option = Column(JSON)
     user_notified = Column(Boolean, default=False)
+    sms_sent = Column(Boolean, default=False)  # Track if SMS notification was sent
     resolved_at = Column(DateTime)
     
     # Relationships
@@ -169,5 +171,116 @@ def get_upcoming_bookings(user_id: str = None):
         if user_id:
             query = query.filter(Booking.user_id == user_id)
         return query.all()
+    finally:
+        db.close()
+
+
+def create_disruption_event(booking_id: str, disruption_type: str, 
+                          original_departure: datetime = None, 
+                          new_departure: datetime = None) -> DisruptionEvent:
+    """Create a new disruption event"""
+    db = SessionLocal()
+    try:
+        event = DisruptionEvent(
+            event_id=str(uuid.uuid4()),
+            booking_id=booking_id,
+            disruption_type=disruption_type,
+            original_departure=original_departure,
+            new_departure=new_departure
+        )
+        db.add(event)
+        db.commit()
+        db.refresh(event)
+        return event
+    finally:
+        db.close()
+
+
+def get_unnotified_high_priority_disruptions():
+    """Get all unnotified high-priority disruption events that need SMS alerts"""
+    db = SessionLocal()
+    try:
+        # Get disruptions that haven't been SMS notified and are high priority
+        disruptions = db.query(DisruptionEvent).filter(
+            DisruptionEvent.sms_sent == False,
+            DisruptionEvent.disruption_type.in_(["CANCELLED", "DIVERTED"])
+        ).all()
+        
+        # Also get delays of 2+ hours or same-day delays
+        delay_disruptions = db.query(DisruptionEvent).join(Booking).filter(
+            DisruptionEvent.sms_sent == False,
+            DisruptionEvent.disruption_type == "DELAYED",
+            DisruptionEvent.original_departure.isnot(None),
+            DisruptionEvent.new_departure.isnot(None)
+        ).all()
+        
+        # Filter delay disruptions for high priority
+        high_priority_delays = []
+        for disruption in delay_disruptions:
+            if disruption.original_departure and disruption.new_departure:
+                delay_hours = (disruption.new_departure - disruption.original_departure).total_seconds() / 3600
+                is_same_day = disruption.original_departure.date() == datetime.utcnow().date()
+                
+                if delay_hours >= 2 or is_same_day:
+                    high_priority_delays.append(disruption)
+        
+        return disruptions + high_priority_delays
+    finally:
+        db.close()
+
+
+def mark_disruption_sms_sent(event_id: str):
+    """Mark a disruption event as SMS sent"""
+    db = SessionLocal()
+    try:
+        event = db.query(DisruptionEvent).filter(DisruptionEvent.event_id == event_id).first()
+        if event:
+            event.sms_sent = True
+            db.commit()
+        return event
+    finally:
+        db.close()
+
+
+def update_user_sms_preferences(user_id: str, sms_enabled: bool, phone: str = None) -> User:
+    """Update user's SMS notification preferences"""
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            return None
+        
+        # Update phone number if provided
+        if phone is not None:
+            user.phone = phone
+        
+        # Update preferences
+        preferences = user.preferences or {}
+        preferences["sms_notifications_enabled"] = sms_enabled
+        user.preferences = preferences
+        
+        db.commit()
+        db.refresh(user)
+        return user
+    finally:
+        db.close()
+
+
+def get_users_with_sms_enabled():
+    """Get all users who have SMS notifications enabled and have phone numbers"""
+    db = SessionLocal()
+    try:
+        users = db.query(User).filter(
+            User.phone.isnot(None)
+        ).all()
+        
+        # Filter for users with SMS enabled in preferences
+        sms_users = []
+        for user in users:
+            preferences = user.preferences or {}
+            if preferences.get("sms_notifications_enabled", False):
+                sms_users.append(user)
+        
+        return sms_users
     finally:
         db.close()

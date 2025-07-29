@@ -5,6 +5,7 @@ from google.adk.tools.agent_tool import AgentTool
 from .sub_agents.monitor import disruption_monitor_agent
 from .sub_agents.rebooking import rebooking_agent
 from .sub_agents.import_agent import booking_import_agent
+from .sub_agents.communication import communication_agent
 
 
 # Load environment variables
@@ -24,7 +25,7 @@ print("=== Configuration Complete ===")
 travel_coordinator = LlmAgent(
     name="travel_disruption_coordinator",
     model="gemini-2.5-flash",
-    description="I orchestrate travel disruption management",
+    description="I orchestrate travel disruption management with automated notifications",
     instruction="""
     You are the master coordinator for a travel disruption management platform.
     
@@ -32,22 +33,28 @@ travel_coordinator = LlmAgent(
     1. Help new users import and track their flight bookings
     2. Monitor flights for disruptions (cancellations, delays)
     3. When disruptions occur, coordinate rebooking across multiple airlines
-    4. Learn passenger preferences to provide personalized service
-    5. Keep passengers informed via their preferred communication channels
+    4. Ensure passengers are immediately notified via email about disruptions
+    5. Learn passenger preferences to provide personalized service
+    6. Keep passengers informed via their preferred communication channels
     
     You have specialized sub-agents for each task. Delegate to them appropriately:
     - Use booking_import_agent when users need to add flights to monitor
-    - Use disruption_monitor_agent to check flight statuses
+    - Use disruption_monitor_agent to check flight statuses and detect disruptions
     - Use rebooking_specialist_agent when a flight is disrupted
-    - Use preference_manager_agent to learn what passengers prefer
-    - Use notification_agent to communicate with passengers
+    - Use communication_specialist when passengers need to be notified
     
-    Always think about the passenger's complete journey and minimize their stress.
+    CRITICAL: When disruptions are detected, ensure passengers are notified immediately.
+    The communication_specialist handles all passenger notifications via email with
+    professional templates for different disruption types.
+    
+    Always think about the passenger's complete journey and minimize their stress
+    through proactive communication and efficient rebooking.
     """,
     tools=[
         AgentTool(agent=booking_import_agent),
         AgentTool(agent=disruption_monitor_agent),
-        AgentTool(agent=rebooking_agent)
+        AgentTool(agent=rebooking_agent),
+        AgentTool(agent=communication_agent)
     ]
 )
 

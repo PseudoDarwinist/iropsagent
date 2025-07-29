@@ -1,5 +1,5 @@
 # flight_agent/models.py
-from sqlalchemy import create_engine, Column, String, DateTime, JSON, Boolean, ForeignKey, Float
+from sqlalchemy import create_engine, Column, String, DateTime, JSON, Boolean, ForeignKey, Float, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime
@@ -27,6 +27,7 @@ class User(Base):
     # Relationships
     bookings = relationship("Booking", back_populates="user")
     email_connections = relationship("EmailConnection", back_populates="user")
+    communication_logs = relationship("CommunicationLog", back_populates="user")
 
 
 class EmailConnection(Base):
@@ -84,6 +85,30 @@ class DisruptionEvent(Base):
     
     # Relationships
     booking = relationship("Booking", back_populates="disruption_events")
+    communication_logs = relationship("CommunicationLog", back_populates="disruption_event")
+
+
+class CommunicationLog(Base):
+    __tablename__ = "communication_logs"
+    
+    log_id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.user_id"))
+    disruption_event_id = Column(String, ForeignKey("disruption_events.event_id"), nullable=True)
+    communication_type = Column(String)  # EMAIL, SMS, PUSH
+    template_used = Column(String)  # Template identifier
+    recipient = Column(String)  # Email address or phone number
+    subject = Column(String)  # Email subject or SMS preview
+    content = Column(Text)  # Full content sent
+    status = Column(String, default="PENDING")  # PENDING, SENT, FAILED, DELIVERED
+    sent_at = Column(DateTime)
+    delivered_at = Column(DateTime)
+    error_message = Column(Text)
+    retry_count = Column(String, default="0")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("User", back_populates="communication_logs")
+    disruption_event = relationship("DisruptionEvent", back_populates="communication_logs")
 
 
 # Create all tables
@@ -169,5 +194,48 @@ def get_upcoming_bookings(user_id: str = None):
         if user_id:
             query = query.filter(Booking.user_id == user_id)
         return query.all()
+    finally:
+        db.close()
+
+
+def create_disruption_event(booking_id: str, disruption_data: dict) -> DisruptionEvent:
+    """Create a new disruption event"""
+    db = SessionLocal()
+    try:
+        event = DisruptionEvent(
+            event_id=f"disruption_{booking_id}_{datetime.now().timestamp()}",
+            booking_id=booking_id,
+            disruption_type=disruption_data.get('type', 'UNKNOWN'),
+            original_departure=disruption_data.get('original_departure'),
+            new_departure=disruption_data.get('new_departure'),
+            rebooking_options=disruption_data.get('rebooking_options', [])
+        )
+        db.add(event)
+        db.commit()
+        db.refresh(event)
+        return event
+    finally:
+        db.close()
+
+
+def create_communication_log(user_id: str, communication_data: dict) -> CommunicationLog:
+    """Create a new communication log entry"""
+    db = SessionLocal()
+    try:
+        log = CommunicationLog(
+            log_id=f"comm_{user_id}_{datetime.now().timestamp()}",
+            user_id=user_id,
+            disruption_event_id=communication_data.get('disruption_event_id'),
+            communication_type=communication_data.get('type', 'EMAIL'),
+            template_used=communication_data.get('template'),
+            recipient=communication_data.get('recipient'),
+            subject=communication_data.get('subject'),
+            content=communication_data.get('content'),
+            status=communication_data.get('status', 'PENDING')
+        )
+        db.add(log)
+        db.commit()
+        db.refresh(log)
+        return log
     finally:
         db.close()

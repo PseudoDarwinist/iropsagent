@@ -5,8 +5,6 @@ from google.genai import types
 
 # Import the agent from the agent package
 from flight_agent.agents.coordinator import root_agent
-# Import the tools from the agent package
-
 
 # Import ALL tools that agents might use
 from flight_agent.tools.flight_tools import (
@@ -20,6 +18,14 @@ from flight_agent.tools.booking_tools import (
 )
 from flight_agent.tools.monitor_tools import (
     check_all_monitored_flights
+)
+from flight_agent.tools.preference_tools import (
+    get_user_preferences,
+    update_user_preferences,
+    validate_notification_settings,
+    get_default_preferences,
+    get_user_preferences_by_email,
+    update_user_preferences_by_email
 )
 
 
@@ -88,6 +94,30 @@ async def main():
             user_id=USER_ID,
             session_id=SESSION_ID,
             new_message=user_message_2
+        ):
+            if event.is_final_response():
+                print(f"Agent: {event.content.parts[0].text}")
+            elif event.is_agent_action():
+                print(f"Agent Action: {event.tool_code_log.tool_name}({event.tool_code_log.args})")
+            elif event.is_observation():
+                print(f"Observation: {event.tool_code_log.result}")
+
+    except Exception as e:
+        print(f"\nAn error occurred during agent execution: {e}")
+        print("Please ensure your middleware LLM endpoint is running, accessible, and correctly configured.")
+
+    # Example 3: Test communication preferences
+    user_message_text_3 = "I want to set my communication preferences. I only want email notifications for flight cancellations and delays."
+    user_message_3 = types.Content(role="user", parts=[types.Part(text=user_message_text_3)])
+
+    print(f"\n--- Conversation 3 (Communication Preferences) ---")
+    print(f"User: {user_message_text_3}")
+
+    try:
+        async for event in runner.run_async(
+            user_id=USER_ID,
+            session_id=SESSION_ID,
+            new_message=user_message_3
         ):
             if event.is_final_response():
                 print(f"Agent: {event.content.parts[0].text}")

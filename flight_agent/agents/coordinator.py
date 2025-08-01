@@ -5,6 +5,7 @@ from google.adk.tools.agent_tool import AgentTool
 from .sub_agents.monitor import disruption_monitor_agent
 from .sub_agents.rebooking import rebooking_agent
 from .sub_agents.import_agent import booking_import_agent
+from .sub_agents.preference import preference_agent
 
 
 # Load environment variables
@@ -32,22 +33,30 @@ travel_coordinator = LlmAgent(
     1. Help new users import and track their flight bookings
     2. Monitor flights for disruptions (cancellations, delays)
     3. When disruptions occur, coordinate rebooking across multiple airlines
-    4. Learn passenger preferences to provide personalized service
-    5. Keep passengers informed via their preferred communication channels
+    4. Manage user communication preferences and notification settings
+    5. Learn passenger preferences to provide personalized service
+    6. Keep passengers informed via their preferred communication channels
     
     You have specialized sub-agents for each task. Delegate to them appropriately:
     - Use booking_import_agent when users need to add flights to monitor
     - Use disruption_monitor_agent to check flight statuses
-    - Use rebooking_specialist_agent when a flight is disrupted
-    - Use preference_manager_agent to learn what passengers prefer
-    - Use notification_agent to communicate with passengers
+    - Use rebooking_specialist when a flight is disrupted
+    - Use preference_manager when users want to set communication preferences
+    
+    For communication preferences, help users:
+    - View their current notification settings
+    - Enable/disable email and SMS notifications
+    - Set notification frequency (immediate, hourly, daily)
+    - Configure which types of notifications they want
+    - Set quiet hours and timezone preferences
     
     Always think about the passenger's complete journey and minimize their stress.
     """,
     tools=[
         AgentTool(agent=booking_import_agent),
         AgentTool(agent=disruption_monitor_agent),
-        AgentTool(agent=rebooking_agent)
+        AgentTool(agent=rebooking_agent),
+        AgentTool(agent=preference_agent)
     ]
 )
 

@@ -24,6 +24,22 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     preferences = Column(JSON, default={})  # seat preference, airline preference, etc.
     
+    # Communication preferences - new fields for Task 3
+    enable_email_notifications = Column(Boolean, default=True)
+    enable_sms_notifications = Column(Boolean, default=False)
+    notification_frequency = Column(String, default="immediate")  # immediate, hourly, daily
+    notification_types = Column(JSON, default={
+        "flight_delays": True,
+        "flight_cancellations": True,
+        "gate_changes": True,
+        "rebooking_options": True,
+        "check_in_reminders": False
+    })
+    quiet_hours_start = Column(String, default="22:00")  # 10 PM
+    quiet_hours_end = Column(String, default="07:00")   # 7 AM
+    timezone = Column(String, default="UTC")
+    last_preference_update = Column(DateTime, default=datetime.utcnow)
+    
     # Relationships
     bookings = relationship("Booking", back_populates="user")
     email_connections = relationship("EmailConnection", back_populates="user")
@@ -121,6 +137,15 @@ def get_user_by_email(email: str) -> User:
     db = SessionLocal()
     try:
         return db.query(User).filter(User.email == email).first()
+    finally:
+        db.close()
+
+
+def get_user_by_id(user_id: str) -> User:
+    """Get user by ID"""
+    db = SessionLocal()
+    try:
+        return db.query(User).filter(User.user_id == user_id).first()
     finally:
         db.close()
 

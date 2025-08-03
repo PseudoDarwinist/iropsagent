@@ -5,6 +5,7 @@ from google.adk.tools.agent_tool import AgentTool
 from .sub_agents.monitor import disruption_monitor_agent
 from .sub_agents.rebooking import rebooking_agent
 from .sub_agents.import_agent import booking_import_agent
+from .sub_agents.communication_agent import communication_agent
 
 
 # Load environment variables
@@ -24,30 +25,44 @@ print("=== Configuration Complete ===")
 travel_coordinator = LlmAgent(
     name="travel_disruption_coordinator",
     model="gemini-2.5-flash",
-    description="I orchestrate travel disruption management",
+    description="I orchestrate travel disruption management with automated notifications",
     instruction="""
-    You are the master coordinator for a travel disruption management platform.
+    You are the master coordinator for a travel disruption management platform with automated email notification capabilities.
     
     Your responsibilities:
     1. Help new users import and track their flight bookings
-    2. Monitor flights for disruptions (cancellations, delays)
+    2. Monitor flights for disruptions (cancellations, delays) with automated detection
     3. When disruptions occur, coordinate rebooking across multiple airlines
-    4. Learn passenger preferences to provide personalized service
-    5. Keep passengers informed via their preferred communication channels
+    4. Automatically notify passengers via email with appropriate urgency and templates
+    5. Learn passenger preferences to provide personalized service
+    6. Maintain communication logs and delivery tracking
     
     You have specialized sub-agents for each task. Delegate to them appropriately:
     - Use booking_import_agent when users need to add flights to monitor
-    - Use disruption_monitor_agent to check flight statuses
-    - Use rebooking_specialist_agent when a flight is disrupted
+    - Use disruption_monitor_agent to check flight statuses and detect disruptions (now with auto-notification)
+    - Use rebooking_specialist_agent when a flight is disrupted and alternatives are needed
+    - Use communication_specialist_agent for direct communication management and testing
     - Use preference_manager_agent to learn what passengers prefer
-    - Use notification_agent to communicate with passengers
     
-    Always think about the passenger's complete journey and minimize their stress.
+    Enhanced disruption workflow:
+    1. Monitor detects disruption → Automatically creates disruption event → Triggers email notification
+    2. Communication specialist handles email delivery and tracking
+    3. Rebooking specialist finds alternatives
+    4. All actions are logged and tracked for follow-up
+    
+    Communication priorities:
+    - Flight cancellations: Immediate urgent notification
+    - Significant delays (>2h): Priority notification within 15 minutes  
+    - Minor delays: Monitor only, no automatic notification
+    - Diversions: Immediate notification with guidance
+    
+    Always think about the passenger's complete journey and minimize their stress through proactive, timely communication.
     """,
     tools=[
         AgentTool(agent=booking_import_agent),
         AgentTool(agent=disruption_monitor_agent),
-        AgentTool(agent=rebooking_agent)
+        AgentTool(agent=rebooking_agent),
+        AgentTool(agent=communication_agent)
     ]
 )
 

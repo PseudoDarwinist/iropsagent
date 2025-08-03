@@ -86,6 +86,26 @@ class DisruptionEvent(Base):
     booking = relationship("Booking", back_populates="disruption_events")
 
 
+class CommunicationLog(Base):
+    __tablename__ = "communication_logs"
+    
+    log_id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.user_id"))
+    disruption_event_id = Column(String, ForeignKey("disruption_events.event_id"))
+    communication_type = Column(String)  # EMAIL, SMS, PUSH
+    recipient = Column(String)  # email address or phone number
+    subject = Column(String)
+    content = Column(String)  # Full message content
+    template_used = Column(String)  # Name of template used
+    sent_at = Column(DateTime, default=datetime.utcnow)
+    delivery_status = Column(String, default="SENT")  # SENT, DELIVERED, FAILED, BOUNCED
+    error_message = Column(String)  # Error details if delivery failed
+    
+    # Relationships
+    user = relationship("User")
+    disruption_event = relationship("DisruptionEvent")
+
+
 # Create all tables
 Base.metadata.create_all(bind=engine)
 
@@ -169,5 +189,43 @@ def get_upcoming_bookings(user_id: str = None):
         if user_id:
             query = query.filter(Booking.user_id == user_id)
         return query.all()
+    finally:
+        db.close()
+
+
+def create_communication_log(user_id: str, disruption_event_id: str, communication_type: str, 
+                           recipient: str, subject: str, content: str, template_used: str = None) -> CommunicationLog:
+    """Create a new communication log entry"""
+    db = SessionLocal()
+    try:
+        log = CommunicationLog(
+            log_id=f"comm_{datetime.now().timestamp()}",
+            user_id=user_id,
+            disruption_event_id=disruption_event_id,
+            communication_type=communication_type,
+            recipient=recipient,
+            subject=subject,
+            content=content,
+            template_used=template_used
+        )
+        db.add(log)
+        db.commit()
+        db.refresh(log)
+        return log
+    finally:
+        db.close()
+
+
+def update_communication_status(log_id: str, status: str, error_message: str = None):
+    """Update the delivery status of a communication log"""
+    db = SessionLocal()
+    try:
+        log = db.query(CommunicationLog).filter(CommunicationLog.log_id == log_id).first()
+        if log:
+            log.delivery_status = status
+            if error_message:
+                log.error_message = error_message
+            db.commit()
+        return log
     finally:
         db.close()

@@ -12,12 +12,23 @@ load_dotenv(override=True)
 
 print("=== CORDINATOR.PY DEBUG ===")
 
+# Validate required environment variables
+required_env_vars = ['GOOGLE_API_KEY']
+missing_vars = []
+
+for var in required_env_vars:
+    if not os.getenv(var):
+        missing_vars.append(var)
+
+if missing_vars:
+    raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
+
 # Set environment variables for Google AI Studio
-os.environ['GOOGLE_API_KEY'] = "AIzaSyD_49Jhf8WZ4irHzaK8KqiEHOw-ILQ3Cow"
+# Note: GOOGLE_API_KEY should be set in .env file, not hardcoded
 os.environ['GOOGLE_GENAI_USE_VERTEXAI'] = "FALSE"
 
 print("Model: gemini-2.5-flash")
-print("API_KEY: SET")
+print("API_KEY: SET (from environment)")
 print("=== Configuration Complete ===")
 
 

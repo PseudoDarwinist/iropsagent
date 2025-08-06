@@ -1,5 +1,5 @@
 # flight_agent/models.py
-from sqlalchemy import create_engine, Column, String, DateTime, JSON, Boolean, ForeignKey, Float
+from sqlalchemy import create_engine, Column, String, DateTime, JSON, Boolean, ForeignKey, Float, Integer
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime
@@ -27,6 +27,7 @@ class User(Base):
     # Relationships
     bookings = relationship("Booking", back_populates="user")
     email_connections = relationship("EmailConnection", back_populates="user")
+    wallet = relationship("Wallet", back_populates="user", uselist=False)
 
 
 class EmailConnection(Base):
@@ -84,6 +85,37 @@ class DisruptionEvent(Base):
     
     # Relationships
     booking = relationship("Booking", back_populates="disruption_events")
+
+
+class Wallet(Base):
+    __tablename__ = "wallets"
+    
+    wallet_id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.user_id"), unique=True)
+    balance = Column(Float, default=0.0)  # Current wallet balance in USD
+    currency = Column(String, default="USD")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("User", back_populates="wallet")
+    transactions = relationship("WalletTransaction", back_populates="wallet")
+
+
+class WalletTransaction(Base):
+    __tablename__ = "wallet_transactions"
+    
+    transaction_id = Column(String, primary_key=True)
+    wallet_id = Column(String, ForeignKey("wallets.wallet_id"))
+    amount = Column(Float, nullable=False)  # Positive for credits, negative for debits
+    transaction_type = Column(String, nullable=False)  # COMPENSATION, PURCHASE, REFUND, etc.
+    description = Column(String)
+    reference_id = Column(String)  # Reference to booking, disruption event, etc.
+    created_at = Column(DateTime, default=datetime.utcnow)
+    transaction_metadata = Column(JSON, default={})  # Additional transaction details (renamed from metadata)
+    
+    # Relationships
+    wallet = relationship("Wallet", back_populates="transactions")
 
 
 # Create all tables
@@ -169,5 +201,24 @@ def get_upcoming_bookings(user_id: str = None):
         if user_id:
             query = query.filter(Booking.user_id == user_id)
         return query.all()
+    finally:
+        db.close()
+
+
+def get_or_create_wallet(user_id: str) -> Wallet:
+    """Get or create a wallet for a user"""
+    db = SessionLocal()
+    try:
+        wallet = db.query(Wallet).filter(Wallet.user_id == user_id).first()
+        if not wallet:
+            wallet = Wallet(
+                wallet_id=f"wallet_{user_id}_{datetime.now().timestamp()}",
+                user_id=user_id,
+                balance=0.0
+            )
+            db.add(wallet)
+            db.commit()
+            db.refresh(wallet)
+        return wallet
     finally:
         db.close()

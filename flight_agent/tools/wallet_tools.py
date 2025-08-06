@@ -294,6 +294,217 @@ def use_wallet_credits(
         db.close()
 
 
+def process_payment(
+    user_id: str,
+    amount: float,
+    booking_id: str,
+    flight_details: Dict,
+    payment_metadata: Dict = None
+) -> Dict:
+    """
+    Process payment for rebooking using wallet funds with rollback capability
+    
+    Args:
+        user_id: User ID for the passenger
+        amount: Payment amount required
+        booking_id: New booking ID for reference
+        flight_details: Details of the new flight booking
+        payment_metadata: Additional payment metadata
+    
+    Returns:
+        Dictionary containing payment processing results with rollback info
+    """
+    
+    db = SessionLocal()
+    transaction_id = None
+    rollback_info = None
+    
+    try:
+        # Get wallet and validate balance
+        wallet = get_or_create_wallet(user_id)
+        
+        if wallet.balance < amount:
+            return {
+                'success': False,
+                'message': f'Insufficient wallet balance. Available: ${wallet.balance:.2f}, Required: ${amount:.2f}',
+                'current_balance': wallet.balance,
+                'insufficient_funds': True
+            }
+        
+        # Store original balance for rollback
+        original_balance = wallet.balance
+        rollback_info = {
+            'original_balance': original_balance,
+            'wallet_id': wallet.wallet_id
+        }
+        
+        # Create debit transaction for rebooking
+        transaction = create_wallet_transaction(
+            wallet_id=wallet.wallet_id,
+            amount=-amount,  # Negative for debit
+            transaction_type='REBOOKING_PAYMENT',
+            description=f"Payment for flight rebooking to {flight_details.get('destination', 'unknown destination')}",
+            reference_id=booking_id,
+            transaction_metadata={
+                'booking_id': booking_id,
+                'flight_details': flight_details,
+                'payment_metadata': payment_metadata or {},
+                'original_balance': original_balance,
+                'rebooking_payment': True
+            }
+        )
+        
+        if not transaction:
+            return {
+                'success': False,
+                'message': 'Failed to create payment transaction',
+                'rollback_info': rollback_info
+            }
+        
+        transaction_id = transaction.transaction_id
+        
+        # Update wallet balance
+        wallet = db.query(Wallet).filter(Wallet.wallet_id == wallet.wallet_id).first()
+        new_balance = wallet.balance - amount
+        wallet.balance = new_balance
+        wallet.updated_at = datetime.utcnow()
+        db.commit()
+        
+        return {
+            'success': True,
+            'message': f"Payment of ${amount:.2f} processed successfully for rebooking",
+            'transaction_id': transaction_id,
+            'amount_paid': amount,
+            'new_wallet_balance': new_balance,
+            'rollback_info': {
+                'transaction_id': transaction_id,
+                'original_balance': original_balance,
+                'wallet_id': wallet.wallet_id
+            }
+        }
+    
+    except Exception as e:
+        db.rollback()
+        return {
+            'success': False,
+            'message': f'Error processing payment: {str(e)}',
+            'error': str(e),
+            'rollback_info': rollback_info,
+            'transaction_id': transaction_id
+        }
+    finally:
+        db.close()
+
+
+def rollback_payment(rollback_info: Dict) -> Dict:
+    """
+    Rollback a failed payment transaction
+    
+    Args:
+        rollback_info: Rollback information from process_payment()
+    
+    Returns:
+        Dictionary containing rollback results
+    """
+    
+    if not rollback_info:
+        return {
+            'success': False,
+            'message': 'No rollback information provided'
+        }
+    
+    db = SessionLocal()
+    try:
+        wallet_id = rollback_info.get('wallet_id')
+        transaction_id = rollback_info.get('transaction_id')
+        original_balance = rollback_info.get('original_balance')
+        
+        if not wallet_id or original_balance is None:
+            return {
+                'success': False,
+                'message': 'Insufficient rollback information'
+            }
+        
+        # Restore original wallet balance
+        wallet = db.query(Wallet).filter(Wallet.wallet_id == wallet_id).first()
+        if wallet:
+            wallet.balance = original_balance
+            wallet.updated_at = datetime.utcnow()
+            
+            # Create rollback transaction if we have transaction_id
+            if transaction_id:
+                rollback_transaction = create_wallet_transaction(
+                    wallet_id=wallet_id,
+                    amount=0,  # No amount change, just for record keeping
+                    transaction_type='ROLLBACK',
+                    description=f"Rollback for failed rebooking payment {transaction_id}",
+                    reference_id=transaction_id,
+                    transaction_metadata={
+                        'rollback_for': transaction_id,
+                        'restored_balance': original_balance,
+                        'rollback_reason': 'rebooking_failed'
+                    }
+                )
+            
+            db.commit()
+            
+            return {
+                'success': True,
+                'message': f"Payment rolled back successfully. Wallet balance restored to ${original_balance:.2f}",
+                'restored_balance': original_balance
+            }
+        else:
+            return {
+                'success': False,
+                'message': 'Wallet not found for rollback'
+            }
+    
+    except Exception as e:
+        db.rollback()
+        return {
+            'success': False,
+            'message': f'Error during rollback: {str(e)}',
+            'error': str(e)
+        }
+    finally:
+        db.close()
+
+
+def validate_wallet_balance(user_id: str, required_amount: float) -> Dict:
+    """
+    Validate if wallet has sufficient balance for a transaction
+    
+    Args:
+        user_id: User ID
+        required_amount: Amount required for transaction
+    
+    Returns:
+        Dictionary containing validation results
+    """
+    
+    try:
+        wallet = get_or_create_wallet(user_id)
+        
+        has_sufficient_balance = wallet.balance >= required_amount
+        shortage = max(0, required_amount - wallet.balance)
+        
+        return {
+            'valid': has_sufficient_balance,
+            'current_balance': wallet.balance,
+            'required_amount': required_amount,
+            'shortage': shortage,
+            'message': 'Sufficient balance available' if has_sufficient_balance 
+                      else f'Insufficient balance. Need ${shortage:.2f} more.'
+        }
+    
+    except Exception as e:
+        return {
+            'valid': False,
+            'error': str(e),
+            'message': f'Error validating wallet balance: {str(e)}'
+        }
+
+
 def get_wallet_summary(user_id: str) -> Dict:
     """
     Get comprehensive wallet summary for a user

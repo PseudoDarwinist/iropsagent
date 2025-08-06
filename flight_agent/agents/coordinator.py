@@ -10,14 +10,18 @@ from .sub_agents.import_agent import booking_import_agent
 # Load environment variables
 load_dotenv(override=True)
 
-print("=== CORDINATOR.PY DEBUG ===")
+print("=== COORDINATOR.PY DEBUG ===")
+
+# Get environment variables for Google AI Studio - NEVER hardcode API keys!
+google_api_key = os.getenv('GOOGLE_API_KEY')
+if not google_api_key:
+    raise ValueError("GOOGLE_API_KEY environment variable is required but not set")
 
 # Set environment variables for Google AI Studio
-os.environ['GOOGLE_API_KEY'] = "AIzaSyD_49Jhf8WZ4irHzaK8KqiEHOw-ILQ3Cow"
 os.environ['GOOGLE_GENAI_USE_VERTEXAI'] = "FALSE"
 
 print("Model: gemini-2.5-flash")
-print("API_KEY: SET")
+print("API_KEY: SET" if google_api_key else "NOT SET")
 print("=== Configuration Complete ===")
 
 

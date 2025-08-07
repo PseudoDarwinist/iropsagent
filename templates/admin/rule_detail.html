@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+
+{% block title %}{{ rule.rule_name }} - IROPS Agent Admin{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-info-circle"></i> Rule Details
+                </h5>
+                <div>
+                    {% if rule.is_active %}
+                        <span class="badge bg-success me-2">
+                            <i class="bi bi-check-circle"></i> Active
+                        </span>
+                    {% else %}
+                        <span class="badge bg-warning me-2">
+                            <i class="bi bi-x-circle"></i> Inactive
+                        </span>
+                    {% endif %}
+                    <span class="badge bg-secondary">v{{ rule.version }}</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Rule Information</h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <td><strong>Rule Name:</strong></td>
+                                <td>{{ rule.rule_name }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Disruption Type:</strong></td>
+                                <td><span class="badge bg-secondary">{{ rule.disruption_type }}</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Compensation Amount:</strong></td>
+                                <td><span class="amount-highlight">${{ "%.2f"|format(rule.amount) }}</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Priority:</strong></td>
+                                <td><span class="badge bg-info priority-badge">{{ rule.priority }}</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Status:</strong></td>
+                                <td>
+                                    {% if rule.is_active %}
+                                        <span class="badge bg-success">Active</span>
+                                    {% else %}
+                                        <span class="badge bg-warning">Inactive</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Metadata</h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <td><strong>Rule ID:</strong></td>
+                                <td><code>{{ rule.rule_id }}</code></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Version:</strong></td>
+                                <td>{{ rule.version }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Created:</strong></td>
+                                <td>{{ rule.created_at.strftime('%Y-%m-%d %H:%M:%S') if rule.created_at else 'N/A' }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Last Updated:</strong></td>
+                                <td>{{ rule.updated_at.strftime('%Y-%m-%d %H:%M:%S') if rule.updated_at else 'N/A' }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Created By:</strong></td>
+                                <td>{{ rule.created_by }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    <h6>Description</h6>
+                    <p class="text-muted">{{ rule.description }}</p>
+                </div>
+
+                {% if rule.conditions %}
+                <div class="mt-4">
+                    <h6>Rule Conditions</h6>
+                    <div class="rule-conditions">
+                        <pre>{{ rule.conditions|tojson(indent=2) }}</pre>
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="mt-4 d-flex gap-2">
+                    <a href="{{ url_for('edit_rule', rule_id=rule.rule_id) }}" 
+                       class="btn btn-primary">
+                        <i class="bi bi-pencil"></i> Edit Rule
+                    </a>
+                    
+                    <form method="POST" action="{{ url_for('toggle_rule', rule_id=rule.rule_id) }}" class="d-inline">
+                        {% if rule.is_active %}
+                            <button type="submit" class="btn btn-warning" 
+                                    onclick="return confirm('Are you sure you want to deactivate this rule?')">
+                                <i class="bi bi-x-circle"></i> Deactivate
+                            </button>
+                        {% else %}
+                            <button type="submit" class="btn btn-success"
+                                    onclick="return confirm('Are you sure you want to activate this rule?')">
+                                <i class="bi bi-check-circle"></i> Activate
+                            </button>
+                        {% endif %}
+                    </form>
+                    
+                    <a href="{{ url_for('list_rules') }}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left"></i> Back to Rules
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audit Trail -->
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="card-title mb-0">
+                    <i class="bi bi-clock-history"></i> Audit Trail
+                </h6>
+            </div>
+            <div class="card-body">
+                {% if history %}
+                <div class="audit-trail">
+                    {% for record in history %}
+                    <div class="mb-3 pb-3 border-bottom">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <strong>{{ record.action }}</strong>
+                                {% if record.action == 'CREATED' %}
+                                    <span class="badge bg-success">{{ record.action }}</span>
+                                {% elif record.action == 'UPDATED' %}
+                                    <span class="badge bg-info">{{ record.action }}</span>
+                                {% elif record.action == 'DEACTIVATED' %}
+                                    <span class="badge bg-warning">{{ record.action }}</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ record.action }}</span>
+                                {% endif %}
+                            </div>
+                            <small class="text-muted">v{{ record.version }}</small>
+                        </div>
+                        <div class="small text-muted mt-1">
+                            {{ record.created_at.strftime('%Y-%m-%d %H:%M:%S') if record.created_at else 'N/A' }}
+                            by {{ record.created_by }}
+                        </div>
+                        {% if record.action == 'UPDATED' %}
+                        <div class="small mt-2">
+                            <strong>Changes:</strong><br>
+                            Amount: ${{ "%.2f"|format(record.amount) }}<br>
+                            Priority: {{ record.priority }}<br>
+                            Status: {% if record.is_active %}Active{% else %}Inactive{% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center text-muted">
+                    <i class="bi bi-inbox"></i>
+                    <p>No audit trail available</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Rule JSON Export -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6 class="card-title mb-0">
+                    <i class="bi bi-code"></i> Rule Export
+                </h6>
+            </div>
+            <div class="card-body">
+                <p class="small text-muted">Copy this rule configuration for backup or replication:</p>
+                <textarea class="form-control conditions-editor" rows="10" readonly>{{
+{
+    "rule_name": rule.rule_name,
+    "description": rule.description,
+    "disruption_type": rule.disruption_type,
+    "amount": rule.amount,
+    "priority": rule.priority,
+    "conditions": rule.conditions,
+    "is_active": rule.is_active
+}|tojson(indent=2)
+                }}</textarea>
+                <button type="button" class="btn btn-outline-secondary btn-sm mt-2 w-100" 
+                        onclick="navigator.clipboard.writeText(this.previousElementSibling.value)">
+                    <i class="bi bi-clipboard"></i> Copy to Clipboard
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

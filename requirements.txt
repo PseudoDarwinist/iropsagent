@@ -6,4 +6,6 @@ google-generativeai # If you still plan to use any Gemini models
 google-adk
 litellm
 httpx
+flask # For admin web interface
+sqlalchemy # Database ORM
 

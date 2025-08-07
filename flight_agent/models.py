@@ -22,7 +22,7 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
     phone = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
-    preferences = Column(JSON, default={})  # seat preference, airline preference, etc.
+    preferences = Column(JSON, default={})  # seat preference, airline preference, sms preferences, etc.
     
     # Relationships
     bookings = relationship("Booking", back_populates="user")
@@ -82,6 +82,7 @@ class DisruptionEvent(Base):
     selected_option = Column(JSON)
     user_notified = Column(Boolean, default=False)
     resolved_at = Column(DateTime)
+    priority = Column(String, default="MEDIUM")  # HIGH, MEDIUM, LOW - for SMS filtering
     
     # Relationships
     booking = relationship("Booking", back_populates="disruption_events")
@@ -246,6 +247,22 @@ def get_upcoming_bookings(user_id: str = None):
         db.close()
 
 
+def create_disruption_event(booking_id: str, disruption_data: dict) -> DisruptionEvent:
+    """Create a new disruption event"""
+    db = SessionLocal()
+    try:
+        disruption = DisruptionEvent(
+            event_id=f"disruption_{booking_id}_{datetime.now().timestamp()}",
+            booking_id=booking_id,
+            disruption_type=disruption_data['type'],
+            original_departure=disruption_data.get('original_departure'),
+            new_departure=disruption_data.get('new_departure'),
+            priority=disruption_data.get('priority', 'MEDIUM')
+        )
+        db.add(disruption)
+        db.commit()
+        db.refresh(disruption)
+        return disruption
 def get_or_create_wallet(user_id: str) -> Wallet:
     """Get or create a wallet for a user"""
     db = SessionLocal()
@@ -309,6 +326,21 @@ def create_compensation_rule(rule_data: dict, created_by: str = "system") -> Com
         db.close()
 
 
+def get_users_with_sms_enabled():
+    """Get all users who have SMS notifications enabled"""
+    db = SessionLocal()
+    try:
+        users = db.query(User).filter(User.phone.isnot(None)).all()
+        sms_enabled_users = []
+        
+        for user in users:
+            preferences = user.preferences or {}
+            sms_prefs = preferences.get('sms', {})
+            if sms_prefs.get('enabled', False):
+                sms_enabled_users.append(user)
+        
+        return sms_enabled_users
+
 def update_compensation_rule(rule_id: str, updated_data: dict, updated_by: str = "system") -> CompensationRule:
     """Update an existing compensation rule and create audit trail"""
     db = SessionLocal()
@@ -362,6 +394,17 @@ def update_compensation_rule(rule_id: str, updated_data: dict, updated_by: str =
         db.close()
 
 
+def update_user_phone(email: str, phone: str) -> bool:
+    """Update user phone number"""
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if user:
+            user.phone = phone
+            db.commit()
+            return True
+        return False
+
 def get_active_compensation_rules(disruption_type: str = None) -> list:
     """Get all active compensation rules, optionally filtered by disruption type"""
     db = SessionLocal()
@@ -373,6 +416,17 @@ def get_active_compensation_rules(disruption_type: str = None) -> list:
     finally:
         db.close()
 
+
+def get_high_priority_disruptions():
+    """Get unnotified high-priority disruptions for SMS alerts"""
+    db = SessionLocal()
+    try:
+        return db.query(DisruptionEvent).filter(
+            DisruptionEvent.user_notified == False,
+            DisruptionEvent.priority == "HIGH"
+        ).all()
+    finally:
+        db.close()
 
 def get_all_compensation_rules() -> list:
     """Get all compensation rules (active and inactive)"""

@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+
+{% block title %}Compensation Rules - IROPS Agent Admin{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-list-ul"></i> Compensation Rules
+                </h5>
+                <a href="{{ url_for('create_rule') }}" class="btn btn-primary">
+                    <i class="bi bi-plus-circle"></i> New Rule
+                </a>
+            </div>
+            
+            <!-- Filters -->
+            <div class="card-body border-bottom">
+                <form method="GET" class="row g-3">
+                    <div class="col-md-3">
+                        <label for="disruption_type" class="form-label">Disruption Type</label>
+                        <select class="form-select" name="disruption_type" id="disruption_type">
+                            <option value="">All Types</option>
+                            {% for dtype in disruption_types %}
+                            <option value="{{ dtype }}" 
+                                    {% if current_filters.disruption_type == dtype %}selected{% endif %}>
+                                {{ dtype }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="status" class="form-label">Status</label>
+                        <select class="form-select" name="status" id="status">
+                            <option value="all" {% if current_filters.status == 'all' %}selected{% endif %}>All Rules</option>
+                            <option value="active" {% if current_filters.status == 'active' %}selected{% endif %}>Active Only</option>
+                            <option value="inactive" {% if current_filters.status == 'inactive' %}selected{% endif %}>Inactive Only</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="sort" class="form-label">Sort By</label>
+                        <select class="form-select" name="sort" id="sort">
+                            <option value="priority" {% if current_filters.sort == 'priority' %}selected{% endif %}>Priority</option>
+                            <option value="amount" {% if current_filters.sort == 'amount' %}selected{% endif %}>Amount</option>
+                            <option value="created_at" {% if current_filters.sort == 'created_at' %}selected{% endif %}>Created Date</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <button type="submit" class="btn btn-outline-primary me-2">
+                            <i class="bi bi-funnel"></i> Apply Filters
+                        </button>
+                        <a href="{{ url_for('list_rules') }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-x-circle"></i> Clear
+                        </a>
+                    </div>
+                </form>
+            </div>
+
+            <div class="card-body">
+                {% if rules %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Status</th>
+                                <th>Rule Name</th>
+                                <th>Disruption Type</th>
+                                <th>Amount</th>
+                                <th>Priority</th>
+                                <th>Version</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for rule in rules %}
+                            <tr class="{% if not rule.is_active %}text-muted{% endif %}">
+                                <td>
+                                    {% if rule.is_active %}
+                                        <span class="badge bg-success">
+                                            <i class="bi bi-check-circle"></i> Active
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-warning">
+                                            <i class="bi bi-x-circle"></i> Inactive
+                                        </span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div>
+                                        <strong>{{ rule.rule_name }}</strong>
+                                        <br>
+                                        <small class="text-muted">
+                                            {{ rule.description[:100] }}{% if rule.description|length > 100 %}...{% endif %}
+                                        </small>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">{{ rule.disruption_type }}</span>
+                                </td>
+                                <td>
+                                    <span class="amount-highlight">${{ "%.2f"|format(rule.amount) }}</span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-info priority-badge">{{ rule.priority }}</span>
+                                </td>
+                                <td>
+                                    <small class="text-muted">v{{ rule.version }}</small>
+                                </td>
+                                <td>
+                                    <small class="text-muted">
+                                        {{ rule.created_at.strftime('%Y-%m-%d') if rule.created_at else 'N/A' }}
+                                    </small>
+                                </td>
+                                <td>
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        <a href="{{ url_for('view_rule', rule_id=rule.rule_id) }}" 
+                                           class="btn btn-outline-primary" 
+                                           title="View Details">
+                                            <i class="bi bi-eye"></i>
+                                        </a>
+                                        <a href="{{ url_for('edit_rule', rule_id=rule.rule_id) }}" 
+                                           class="btn btn-outline-secondary" 
+                                           title="Edit">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                        <form method="POST" 
+                                              action="{{ url_for('toggle_rule', rule_id=rule.rule_id) }}" 
+                                              class="d-inline">
+                                            {% if rule.is_active %}
+                                                <button type="submit" 
+                                                        class="btn btn-outline-warning" 
+                                                        title="Deactivate"
+                                                        onclick="return confirm('Deactivate this rule?')">
+                                                    <i class="bi bi-pause"></i>
+                                                </button>
+                                            {% else %}
+                                                <button type="submit" 
+                                                        class="btn btn-outline-success" 
+                                                        title="Activate"
+                                                        onclick="return confirm('Activate this rule?')">
+                                                    <i class="bi bi-play"></i>
+                                                </button>
+                                            {% endif %}
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Summary -->
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle"></i>
+                            Showing {{ rules|length }} rule(s)
+                            {% if current_filters.disruption_type %}
+                                for <strong>{{ current_filters.disruption_type }}</strong> disruptions
+                            {% endif %}
+                            {% if current_filters.status != 'all' %}
+                                ({{ current_filters.status }} only)
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                {% else %}
+                <div class="text-center py-5">
+                    <i class="bi bi-inbox fs-1 text-muted"></i>
+                    <h5 class="text-muted mt-3">No rules found</h5>
+                    {% if current_filters.disruption_type or current_filters.status != 'all' %}
+                    <p class="text-muted">Try adjusting your filters or 
+                        <a href="{{ url_for('list_rules') }}">view all rules</a>
+                    </p>
+                    {% else %}
+                    <p class="text-muted">Get started by creating your first compensation rule</p>
+                    <a href="{{ url_for('create_rule') }}" class="btn btn-primary">
+                        <i class="bi bi-plus-circle"></i> Create First Rule
+                    </a>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Stats -->
+{% if rules %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="card-title mb-0">
+                    <i class="bi bi-bar-chart"></i> Quick Statistics
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="h4 text-primary">{{ rules|selectattr("is_active")|list|length }}</div>
+                        <div class="text-muted">Active Rules</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="h4 text-warning">{{ rules|rejectattr("is_active")|list|length }}</div>
+                        <div class="text-muted">Inactive Rules</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="h4 text-success">
+                            ${{ "%.0f"|format(rules|selectattr("is_active")|map(attribute="amount")|sum) }}
+                        </div>
+                        <div class="text-muted">Total Active Compensation</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="h4 text-info">
+                            {{ rules|selectattr("is_active")|map(attribute="disruption_type")|unique|list|length }}
+                        </div>
+                        <div class="text-muted">Covered Disruption Types</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

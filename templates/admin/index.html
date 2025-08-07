@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - IROPS Agent Admin{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            <i class="bi bi-speedometer2"></i> Compensation Rules Dashboard
+        </h1>
+    </div>
+</div>
+
+<!-- Statistics Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ stats.total_rules or 0 }}</h4>
+                        <p class="card-text">Total Rules</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-list-ul fs-2"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ stats.active_rules or 0 }}</h4>
+                        <p class="card-text">Active Rules</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-check-circle fs-2"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-warning text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ stats.inactive_rules or 0 }}</h4>
+                        <p class="card-text">Inactive Rules</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-x-circle fs-2"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ stats.disruption_types|length or 0 }}</h4>
+                        <p class="card-text">Disruption Types</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-exclamation-triangle fs-2"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Disruption Type Breakdown -->
+{% if stats.disruption_types %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-bar-chart"></i> Active Rules by Disruption Type
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    {% for disruption_type, count in stats.disruption_types.items() %}
+                    <div class="col-md-3 mb-3">
+                        <div class="text-center">
+                            <div class="h2 text-primary">{{ count }}</div>
+                            <div class="text-muted">{{ disruption_type }}</div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Active Rules Table -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-check-circle text-success"></i> Active Compensation Rules
+                </h5>
+                <a href="{{ url_for('create_rule') }}" class="btn btn-primary btn-sm">
+                    <i class="bi bi-plus-circle"></i> New Rule
+                </a>
+            </div>
+            <div class="card-body">
+                {% if active_rules %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Rule Name</th>
+                                <th>Disruption Type</th>
+                                <th>Amount</th>
+                                <th>Priority</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for rule in active_rules %}
+                            <tr>
+                                <td>
+                                    <strong>{{ rule.rule_name }}</strong>
+                                    <br>
+                                    <small class="text-muted">{{ rule.description[:80] }}{% if rule.description|length > 80 %}...{% endif %}</small>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">{{ rule.disruption_type }}</span>
+                                </td>
+                                <td>
+                                    <span class="amount-highlight">${{ "%.2f"|format(rule.amount) }}</span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-info priority-badge">{{ rule.priority }}</span>
+                                </td>
+                                <td>
+                                    <small class="text-muted">
+                                        {{ rule.created_at.strftime('%Y-%m-%d') if rule.created_at else 'N/A' }}
+                                    </small>
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('view_rule', rule_id=rule.rule_id) }}" 
+                                       class="btn btn-sm btn-outline-primary" title="View Details">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    <a href="{{ url_for('edit_rule', rule_id=rule.rule_id) }}" 
+                                       class="btn btn-sm btn-outline-secondary" title="Edit">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <i class="bi bi-inbox fs-1 text-muted"></i>
+                    <p class="text-muted mt-2">No active compensation rules found.</p>
+                    <a href="{{ url_for('create_rule') }}" class="btn btn-primary">
+                        <i class="bi bi-plus-circle"></i> Create First Rule
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recently Modified Rules -->
+{% if inactive_rules %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-x-circle text-warning"></i> Inactive Rules
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Rule Name</th>
+                                <th>Disruption Type</th>
+                                <th>Amount</th>
+                                <th>Last Modified</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for rule in inactive_rules[:5] %}
+                            <tr class="text-muted">
+                                <td>{{ rule.rule_name }}</td>
+                                <td>
+                                    <span class="badge bg-light text-dark">{{ rule.disruption_type }}</span>
+                                </td>
+                                <td>${{ "%.2f"|format(rule.amount) }}</td>
+                                <td>
+                                    <small>{{ rule.updated_at.strftime('%Y-%m-%d') if rule.updated_at else 'N/A' }}</small>
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('view_rule', rule_id=rule.rule_id) }}" 
+                                       class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if inactive_rules|length > 5 %}
+                <div class="text-center mt-3">
+                    <a href="{{ url_for('list_rules', status='inactive') }}" class="btn btn-sm btn-outline-secondary">
+                        View All Inactive Rules ({{ inactive_rules|length }})
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Quick Actions -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card border-primary">
+            <div class="card-header bg-primary text-white">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-lightning"></i> Quick Actions
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4 mb-2">
+                        <a href="{{ url_for('create_rule') }}" class="btn btn-primary w-100">
+                            <i class="bi bi-plus-circle"></i> Create New Rule
+                        </a>
+                    </div>
+                    <div class="col-md-4 mb-2">
+                        <a href="{{ url_for('list_rules') }}" class="btn btn-outline-primary w-100">
+                            <i class="bi bi-list-ul"></i> View All Rules
+                        </a>
+                    </div>
+                    <div class="col-md-4 mb-2">
+                        <a href="{{ url_for('api_rules') }}" class="btn btn-outline-secondary w-100" target="_blank">
+                            <i class="bi bi-code"></i> API Documentation
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -6,4 +6,7 @@ google-generativeai # If you still plan to use any Gemini models
 google-adk
 litellm
 httpx
+streamlit # For web UI components
+pandas # For data handling in Streamlit
+sqlalchemy # Database ORM
 

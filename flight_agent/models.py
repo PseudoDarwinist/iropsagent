@@ -263,6 +263,10 @@ def create_disruption_event(booking_id: str, disruption_data: dict) -> Disruptio
         db.commit()
         db.refresh(disruption)
         return disruption
+    finally:
+        db.close()
+
+
 def get_or_create_wallet(user_id: str) -> Wallet:
     """Get or create a wallet for a user"""
     db = SessionLocal()
@@ -340,6 +344,9 @@ def get_users_with_sms_enabled():
                 sms_enabled_users.append(user)
         
         return sms_enabled_users
+    finally:
+        db.close()
+
 
 def update_compensation_rule(rule_id: str, updated_data: dict, updated_by: str = "system") -> CompensationRule:
     """Update an existing compensation rule and create audit trail"""
@@ -404,6 +411,9 @@ def update_user_phone(email: str, phone: str) -> bool:
             db.commit()
             return True
         return False
+    finally:
+        db.close()
+
 
 def get_active_compensation_rules(disruption_type: str = None) -> list:
     """Get all active compensation rules, optionally filtered by disruption type"""
@@ -427,6 +437,7 @@ def get_high_priority_disruptions():
         ).all()
     finally:
         db.close()
+
 
 def get_all_compensation_rules() -> list:
     """Get all compensation rules (active and inactive)"""

@@ -66,6 +66,7 @@ class Booking(Base):
     # Relationships
     user = relationship("User", back_populates="bookings")
     disruption_events = relationship("DisruptionEvent", back_populates="booking")
+    flight_holds = relationship("FlightHold", back_populates="booking")
 
 
 class DisruptionEvent(Base):
@@ -86,6 +87,147 @@ class DisruptionEvent(Base):
     
     # Relationships
     booking = relationship("Booking", back_populates="disruption_events")
+    disruption_alerts = relationship("DisruptionAlert", back_populates="disruption_event")
+
+
+class DisruptionAlert(Base):
+    """
+    REQ-1.2: DisruptionAlert model with risk severity levels
+    Handles alert notifications for disruption events with configurable severity levels
+    """
+    __tablename__ = "disruption_alerts"
+    
+    alert_id = Column(String, primary_key=True)
+    event_id = Column(String, ForeignKey("disruption_events.event_id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.user_id"), nullable=False)
+    alert_type = Column(String, nullable=False)  # EMAIL, SMS, PUSH, IN_APP
+    risk_severity = Column(String, default="MEDIUM")  # CRITICAL, HIGH, MEDIUM, LOW
+    alert_message = Column(String, nullable=False)
+    sent_at = Column(DateTime)
+    delivery_status = Column(String, default="PENDING")  # PENDING, SENT, DELIVERED, FAILED
+    retry_count = Column(Integer, default=0)
+    max_retries = Column(Integer, default=3)
+    urgency_score = Column(Integer, default=50)  # 0-100 scale for prioritization
+    alert_metadata = Column(JSON, default={})  # Additional alert context
+    expires_at = Column(DateTime)  # When this alert becomes irrelevant
+    acknowledged_at = Column(DateTime)  # User acknowledgment timestamp
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    disruption_event = relationship("DisruptionEvent", back_populates="disruption_alerts")
+    user = relationship("User")
+
+
+class AlternativeFlight(Base):
+    """
+    REQ-2.1: AlternativeFlight model with policy compliance flags
+    Stores alternative flight options with policy and compliance validation
+    """
+    __tablename__ = "alternative_flights"
+    
+    alternative_id = Column(String, primary_key=True)
+    event_id = Column(String, ForeignKey("disruption_events.event_id"), nullable=False)
+    flight_number = Column(String, nullable=False)
+    airline = Column(String, nullable=False)
+    departure_time = Column(DateTime, nullable=False)
+    arrival_time = Column(DateTime, nullable=False)
+    origin = Column(String, nullable=False)  # Airport code
+    destination = Column(String, nullable=False)  # Airport code
+    booking_class = Column(String, nullable=False)
+    available_seats = Column(Integer, default=0)
+    price = Column(Float)  # Price difference from original booking
+    currency = Column(String, default="USD")
+    
+    # Policy compliance flags (REQ-2.1)
+    policy_compliant = Column(Boolean, default=False)  # Overall policy compliance
+    class_downgrade_approved = Column(Boolean, default=False)  # If lower class is acceptable
+    airline_restriction_compliant = Column(Boolean, default=True)  # Airline policy compliance
+    route_policy_compliant = Column(Boolean, default=True)  # Route restrictions compliance
+    time_window_compliant = Column(Boolean, default=True)  # Departure time policy compliance
+    cost_policy_compliant = Column(Boolean, default=True)  # Cost increase policy compliance
+    
+    # Additional metadata
+    stops = Column(Integer, default=0)  # Number of stops/connections
+    layover_duration = Column(Integer)  # Total layover time in minutes
+    flight_duration = Column(Integer)  # Total flight time in minutes
+    aircraft_type = Column(String)
+    meal_service = Column(Boolean, default=False)
+    wifi_available = Column(Boolean, default=False)
+    
+    # Booking and status
+    recommended_rank = Column(Integer)  # 1-N ranking of alternatives
+    user_preference_score = Column(Integer)  # User preference matching score (0-100)
+    availability_status = Column(String, default="AVAILABLE")  # AVAILABLE, WAITLIST, SOLD_OUT
+    booking_deadline = Column(DateTime)  # When this option expires
+    selected_by_user = Column(Boolean, default=False)
+    booked_at = Column(DateTime)
+    booking_reference = Column(String)  # New booking reference if selected
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    disruption_event = relationship("DisruptionEvent")
+
+
+class FlightHold(Base):
+    """
+    REQ-2.5: FlightHold model for temporary reservations
+    Manages temporary reservations of alternative flights during rebooking process
+    """
+    __tablename__ = "flight_holds"
+    
+    hold_id = Column(String, primary_key=True)
+    booking_id = Column(String, ForeignKey("bookings.booking_id"), nullable=False)
+    alternative_id = Column(String, ForeignKey("alternative_flights.alternative_id"))
+    user_id = Column(String, ForeignKey("users.user_id"), nullable=False)
+    
+    # Flight details
+    flight_number = Column(String, nullable=False)
+    airline = Column(String, nullable=False)
+    departure_time = Column(DateTime, nullable=False)
+    arrival_time = Column(DateTime, nullable=False)
+    origin = Column(String, nullable=False)
+    destination = Column(String, nullable=False)
+    booking_class = Column(String, nullable=False)
+    
+    # Hold management
+    hold_status = Column(String, default="ACTIVE")  # ACTIVE, EXPIRED, RELEASED, CONVERTED
+    hold_type = Column(String, default="AUTOMATIC")  # AUTOMATIC, MANUAL, AGENT_REQUESTED
+    hold_duration_minutes = Column(Integer, default=15)  # How long to hold
+    hold_expires_at = Column(DateTime, nullable=False)
+    auto_release = Column(Boolean, default=True)  # Auto-release when expired
+    
+    # Reservation details
+    seats_held = Column(Integer, default=1)
+    hold_reference = Column(String)  # Airline's hold reference
+    hold_confirmation_code = Column(String)  # Airline confirmation for hold
+    price_locked = Column(Float)  # Price guaranteed during hold
+    currency = Column(String, default="USD")
+    
+    # Business rules
+    payment_required_by = Column(DateTime)  # When payment must be made
+    cancellation_deadline = Column(DateTime)  # When hold can no longer be cancelled
+    modification_allowed = Column(Boolean, default=True)  # Can hold be modified
+    transfer_allowed = Column(Boolean, default=False)  # Can hold be transferred to another user
+    
+    # Status tracking
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    confirmed_at = Column(DateTime)  # When user confirmed the hold
+    released_at = Column(DateTime)  # When hold was released
+    converted_to_booking_at = Column(DateTime)  # When hold became a real booking
+    
+    # Extension tracking
+    extension_count = Column(Integer, default=0)  # How many times hold was extended
+    max_extensions_allowed = Column(Integer, default=2)
+    extended_until = Column(DateTime)  # If hold was extended
+    extension_reason = Column(String)  # Why hold was extended
+    
+    # Relationships
+    booking = relationship("Booking", back_populates="flight_holds")
+    alternative_flight = relationship("AlternativeFlight")
+    user = relationship("User")
 
 
 class Wallet(Base):
@@ -263,6 +405,220 @@ def create_disruption_event(booking_id: str, disruption_data: dict) -> Disruptio
         db.commit()
         db.refresh(disruption)
         return disruption
+    finally:
+        db.close()
+
+
+# New helper functions for the newly implemented models
+
+def create_disruption_alert(event_id: str, user_id: str, alert_data: dict) -> DisruptionAlert:
+    """Create a new disruption alert"""
+    db = SessionLocal()
+    try:
+        alert = DisruptionAlert(
+            alert_id=f"alert_{event_id}_{alert_data['alert_type']}_{datetime.now().timestamp()}",
+            event_id=event_id,
+            user_id=user_id,
+            alert_type=alert_data['alert_type'],
+            risk_severity=alert_data.get('risk_severity', 'MEDIUM'),
+            alert_message=alert_data['alert_message'],
+            urgency_score=alert_data.get('urgency_score', 50),
+            expires_at=alert_data.get('expires_at'),
+            alert_metadata=alert_data.get('alert_metadata', {})
+        )
+        db.add(alert)
+        db.commit()
+        db.refresh(alert)
+        return alert
+    finally:
+        db.close()
+
+
+def create_alternative_flight(event_id: str, flight_data: dict) -> AlternativeFlight:
+    """Create a new alternative flight option"""
+    db = SessionLocal()
+    try:
+        alternative = AlternativeFlight(
+            alternative_id=f"alt_{event_id}_{flight_data['flight_number']}_{datetime.now().timestamp()}",
+            event_id=event_id,
+            flight_number=flight_data['flight_number'],
+            airline=flight_data['airline'],
+            departure_time=flight_data['departure_time'],
+            arrival_time=flight_data['arrival_time'],
+            origin=flight_data['origin'],
+            destination=flight_data['destination'],
+            booking_class=flight_data['booking_class'],
+            available_seats=flight_data.get('available_seats', 0),
+            price=flight_data.get('price'),
+            currency=flight_data.get('currency', 'USD'),
+            policy_compliant=flight_data.get('policy_compliant', False),
+            class_downgrade_approved=flight_data.get('class_downgrade_approved', False),
+            airline_restriction_compliant=flight_data.get('airline_restriction_compliant', True),
+            route_policy_compliant=flight_data.get('route_policy_compliant', True),
+            time_window_compliant=flight_data.get('time_window_compliant', True),
+            cost_policy_compliant=flight_data.get('cost_policy_compliant', True),
+            stops=flight_data.get('stops', 0),
+            layover_duration=flight_data.get('layover_duration'),
+            flight_duration=flight_data.get('flight_duration'),
+            recommended_rank=flight_data.get('recommended_rank'),
+            user_preference_score=flight_data.get('user_preference_score', 50),
+            booking_deadline=flight_data.get('booking_deadline')
+        )
+        db.add(alternative)
+        db.commit()
+        db.refresh(alternative)
+        return alternative
+    finally:
+        db.close()
+
+
+def create_flight_hold(booking_id: str, user_id: str, hold_data: dict) -> FlightHold:
+    """Create a new flight hold"""
+    db = SessionLocal()
+    try:
+        # Calculate hold expiration time
+        from datetime import timedelta
+        hold_duration = hold_data.get('hold_duration_minutes', 15)
+        hold_expires_at = datetime.utcnow() + timedelta(minutes=hold_duration)
+        
+        hold = FlightHold(
+            hold_id=f"hold_{booking_id}_{hold_data['flight_number']}_{datetime.now().timestamp()}",
+            booking_id=booking_id,
+            alternative_id=hold_data.get('alternative_id'),
+            user_id=user_id,
+            flight_number=hold_data['flight_number'],
+            airline=hold_data['airline'],
+            departure_time=hold_data['departure_time'],
+            arrival_time=hold_data['arrival_time'],
+            origin=hold_data['origin'],
+            destination=hold_data['destination'],
+            booking_class=hold_data['booking_class'],
+            hold_type=hold_data.get('hold_type', 'AUTOMATIC'),
+            hold_duration_minutes=hold_duration,
+            hold_expires_at=hold_expires_at,
+            seats_held=hold_data.get('seats_held', 1),
+            hold_reference=hold_data.get('hold_reference'),
+            price_locked=hold_data.get('price_locked'),
+            payment_required_by=hold_data.get('payment_required_by'),
+            cancellation_deadline=hold_data.get('cancellation_deadline')
+        )
+        db.add(hold)
+        db.commit()
+        db.refresh(hold)
+        return hold
+    finally:
+        db.close()
+
+
+def get_active_disruption_alerts(user_id: str = None, risk_severity: str = None):
+    """Get active disruption alerts, optionally filtered by user and severity"""
+    db = SessionLocal()
+    try:
+        query = db.query(DisruptionAlert).filter(
+            DisruptionAlert.delivery_status != "DELIVERED",
+            DisruptionAlert.expires_at > datetime.utcnow()
+        )
+        if user_id:
+            query = query.filter(DisruptionAlert.user_id == user_id)
+        if risk_severity:
+            query = query.filter(DisruptionAlert.risk_severity == risk_severity)
+        return query.order_by(DisruptionAlert.urgency_score.desc()).all()
+    finally:
+        db.close()
+
+
+def get_policy_compliant_alternatives(event_id: str):
+    """Get all policy-compliant alternative flights for a disruption event"""
+    db = SessionLocal()
+    try:
+        return db.query(AlternativeFlight).filter(
+            AlternativeFlight.event_id == event_id,
+            AlternativeFlight.policy_compliant == True,
+            AlternativeFlight.availability_status == "AVAILABLE"
+        ).order_by(AlternativeFlight.recommended_rank).all()
+    finally:
+        db.close()
+
+
+def get_active_flight_holds(user_id: str = None):
+    """Get all active flight holds, optionally filtered by user"""
+    db = SessionLocal()
+    try:
+        query = db.query(FlightHold).filter(
+            FlightHold.hold_status == "ACTIVE",
+            FlightHold.hold_expires_at > datetime.utcnow()
+        )
+        if user_id:
+            query = query.filter(FlightHold.user_id == user_id)
+        return query.order_by(FlightHold.hold_expires_at).all()
+    finally:
+        db.close()
+
+
+def extend_flight_hold(hold_id: str, additional_minutes: int = 15, reason: str = None) -> FlightHold:
+    """Extend a flight hold by additional minutes"""
+    db = SessionLocal()
+    try:
+        hold = db.query(FlightHold).filter(FlightHold.hold_id == hold_id).first()
+        if not hold:
+            raise ValueError(f"Flight hold {hold_id} not found")
+        
+        if hold.extension_count >= hold.max_extensions_allowed:
+            raise ValueError(f"Maximum extensions ({hold.max_extensions_allowed}) already reached")
+        
+        from datetime import timedelta
+        new_expiry = hold.hold_expires_at + timedelta(minutes=additional_minutes)
+        hold.hold_expires_at = new_expiry
+        hold.extended_until = new_expiry
+        hold.extension_count += 1
+        hold.extension_reason = reason or "User requested extension"
+        hold.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(hold)
+        return hold
+    finally:
+        db.close()
+
+
+def release_flight_hold(hold_id: str) -> FlightHold:
+    """Release a flight hold"""
+    db = SessionLocal()
+    try:
+        hold = db.query(FlightHold).filter(FlightHold.hold_id == hold_id).first()
+        if not hold:
+            raise ValueError(f"Flight hold {hold_id} not found")
+        
+        hold.hold_status = "RELEASED"
+        hold.released_at = datetime.utcnow()
+        hold.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(hold)
+        return hold
+    finally:
+        db.close()
+
+
+def convert_hold_to_booking(hold_id: str) -> FlightHold:
+    """Convert a flight hold to a confirmed booking"""
+    db = SessionLocal()
+    try:
+        hold = db.query(FlightHold).filter(FlightHold.hold_id == hold_id).first()
+        if not hold:
+            raise ValueError(f"Flight hold {hold_id} not found")
+        
+        hold.hold_status = "CONVERTED"
+        hold.converted_to_booking_at = datetime.utcnow()
+        hold.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(hold)
+        return hold
+    finally:
+        db.close()
+
+
 def get_or_create_wallet(user_id: str) -> Wallet:
     """Get or create a wallet for a user"""
     db = SessionLocal()
@@ -340,6 +696,9 @@ def get_users_with_sms_enabled():
                 sms_enabled_users.append(user)
         
         return sms_enabled_users
+    finally:
+        db.close()
+
 
 def update_compensation_rule(rule_id: str, updated_data: dict, updated_by: str = "system") -> CompensationRule:
     """Update an existing compensation rule and create audit trail"""
@@ -404,6 +763,9 @@ def update_user_phone(email: str, phone: str) -> bool:
             db.commit()
             return True
         return False
+    finally:
+        db.close()
+
 
 def get_active_compensation_rules(disruption_type: str = None) -> list:
     """Get all active compensation rules, optionally filtered by disruption type"""
@@ -427,6 +789,7 @@ def get_high_priority_disruptions():
         ).all()
     finally:
         db.close()
+
 
 def get_all_compensation_rules() -> list:
     """Get all compensation rules (active and inactive)"""

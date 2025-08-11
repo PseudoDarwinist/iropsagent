@@ -2,7 +2,7 @@
 from sqlalchemy import create_engine, Column, String, DateTime, JSON, Boolean, ForeignKey, Float, Integer, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
 
@@ -29,6 +29,7 @@ class User(Base):
     email_connections = relationship("EmailConnection", back_populates="user")
     wallet = relationship("Wallet", back_populates="user", uselist=False)
     travelers = relationship("Traveler", back_populates="user")
+    approval_requests = relationship("ApprovalRequest", back_populates="user")
 
 
 class EmailConnection(Base):
@@ -131,6 +132,8 @@ class Booking(Base):
     disruption_events = relationship("DisruptionEvent", back_populates="booking")
     flight_holds = relationship("FlightHold", back_populates="booking")
     trip_monitors = relationship("TripMonitor", back_populates="booking")
+    approval_requests = relationship("ApprovalRequest", back_populates="booking")
+    policy_exceptions = relationship("PolicyException", back_populates="booking")
 
 
 class TripMonitor(Base):
@@ -397,6 +400,212 @@ class CompensationRuleHistory(Base):
     
     # Relationships
     rule = relationship("CompensationRule", back_populates="rule_history")
+
+
+# New Policy Compliance and Approval Workflow Models
+
+
+class TravelPolicy(Base):
+    """
+    Travel policy model with rule definitions for compliance checking.
+    Supports REQ-5.1: Policy rule definitions and compliance checking.
+    """
+    __tablename__ = "travel_policies"
+    
+    policy_id = Column(String, primary_key=True)
+    policy_name = Column(String, nullable=False)
+    policy_version = Column(String, default="1.0")
+    description = Column(Text, nullable=False)
+    policy_type = Column(String, nullable=False)  # BOOKING, EXPENSE, APPROVAL, SECURITY
+    scope = Column(String, default="GLOBAL")  # GLOBAL, DEPARTMENT, ROLE, USER
+    target_audience = Column(JSON, default={})  # {"departments": [], "roles": [], "users": []}
+    
+    # Rule definitions
+    rules = Column(JSON, nullable=False)  # Comprehensive rule definitions
+    # Example rules structure:
+    # {
+    #   "booking_limits": {
+    #     "max_fare_amount": 1000,
+    #     "allowed_booking_classes": ["Economy", "Premium Economy"],
+    #     "advance_booking_days": 7,
+    #     "preferred_airlines": ["AA", "DL", "UA"]
+    #   },
+    #   "expense_limits": {
+    #     "max_hotel_rate": 200,
+    #     "max_meal_allowance": 50,
+    #     "receipts_required_above": 25
+    #   },
+    #   "approval_thresholds": {
+    #     "auto_approve_below": 500,
+    #     "manager_approval_below": 2000,
+    #     "director_approval_above": 2000
+    #   }
+    # }
+    
+    # Compliance settings
+    enforcement_level = Column(String, default="STRICT")  # STRICT, MODERATE, ADVISORY
+    auto_compliance_check = Column(Boolean, default=True)
+    allow_exceptions = Column(Boolean, default=True)
+    exception_requires_approval = Column(Boolean, default=True)
+    
+    # Metadata
+    is_active = Column(Boolean, default=True)
+    effective_date = Column(DateTime, nullable=False)
+    expiration_date = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by = Column(String, nullable=False)
+    updated_by = Column(String)
+    
+    # Relationships
+    approval_requests = relationship("ApprovalRequest", back_populates="travel_policy")
+    policy_exceptions = relationship("PolicyException", back_populates="travel_policy")
+
+
+class ApprovalRequest(Base):
+    """
+    Approval request model with escalation chains for workflow management.
+    Supports REQ-5.2: Approval workflows with escalation chains.
+    """
+    __tablename__ = "approval_requests"
+    
+    request_id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.user_id"), nullable=False)
+    booking_id = Column(String, ForeignKey("bookings.booking_id"))  # Optional, for booking-related approvals
+    policy_id = Column(String, ForeignKey("travel_policies.policy_id"))
+    
+    # Request details
+    request_type = Column(String, nullable=False)  # BOOKING_APPROVAL, POLICY_EXCEPTION, EXPENSE_APPROVAL
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=False)
+    justification = Column(Text)  # User-provided justification
+    request_data = Column(JSON, nullable=False)  # Detailed request information
+    # Example request_data structure:
+    # {
+    #   "booking_details": {...},
+    #   "policy_violations": [...],
+    #   "requested_amount": 1500,
+    #   "business_justification": "Critical client meeting",
+    #   "alternative_options_considered": [...]
+    # }
+    
+    # Approval workflow
+    status = Column(String, default="PENDING")  # PENDING, IN_REVIEW, APPROVED, REJECTED, ESCALATED, EXPIRED
+    priority = Column(String, default="MEDIUM")  # HIGH, MEDIUM, LOW
+    escalation_level = Column(Integer, default=0)  # Current escalation level (0 = initial, 1+ = escalated)
+    
+    # Escalation chain definition
+    escalation_chain = Column(JSON, nullable=False)  # Defines approval hierarchy
+    # Example escalation_chain structure:
+    # [
+    #   {"level": 0, "approver_role": "manager", "approver_id": "mgr_123", "timeout_hours": 24},
+    #   {"level": 1, "approver_role": "director", "approver_id": "dir_456", "timeout_hours": 48},
+    #   {"level": 2, "approver_role": "vp", "approver_id": "vp_789", "timeout_hours": 72}
+    # ]
+    
+    current_approver_id = Column(String)  # Current person who needs to approve
+    current_approver_role = Column(String)  # Current approver's role
+    
+    # Timing
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    due_date = Column(DateTime)  # When approval is needed by
+    escalation_due = Column(DateTime)  # When to escalate if no response
+    resolved_at = Column(DateTime)
+    
+    # Resolution details
+    approved_by = Column(String)  # Final approver user ID
+    approved_at = Column(DateTime)
+    approval_notes = Column(Text)  # Approver's comments
+    rejection_reason = Column(Text)  # If rejected, reason provided
+    
+    # Audit trail
+    approval_history = Column(JSON, default=[])  # History of all approval actions
+    # Example approval_history structure:
+    # [
+    #   {"timestamp": "2024-01-01T10:00:00", "action": "CREATED", "user_id": "user_123"},
+    #   {"timestamp": "2024-01-01T11:00:00", "action": "REVIEWED", "user_id": "mgr_123", "notes": "Looks good"},
+    #   {"timestamp": "2024-01-01T12:00:00", "action": "APPROVED", "user_id": "mgr_123", "notes": "Approved"}
+    # ]
+    
+    # Relationships
+    user = relationship("User", back_populates="approval_requests")
+    booking = relationship("Booking", back_populates="approval_requests")
+    travel_policy = relationship("TravelPolicy", back_populates="approval_requests")
+
+
+class PolicyException(Base):
+    """
+    Policy exception model for tracking rule violations and their handling.
+    Supports REQ-5.4: Exception tracking and violation management.
+    """
+    __tablename__ = "policy_exceptions"
+    
+    exception_id = Column(String, primary_key=True)
+    booking_id = Column(String, ForeignKey("bookings.booking_id"), nullable=False)
+    policy_id = Column(String, ForeignKey("travel_policies.policy_id"), nullable=False)
+    
+    # Exception details
+    exception_type = Column(String, nullable=False)  # RULE_VIOLATION, THRESHOLD_EXCEEDED, APPROVAL_BYPASS
+    violation_category = Column(String, nullable=False)  # BOOKING_LIMIT, EXPENSE_LIMIT, ADVANCE_BOOKING, CLASS_RESTRICTION
+    severity = Column(String, default="MEDIUM")  # CRITICAL, HIGH, MEDIUM, LOW
+    
+    # Violation details
+    violated_rule = Column(String, nullable=False)  # Specific rule that was violated
+    expected_value = Column(String)  # What the policy expected
+    actual_value = Column(String)  # What was actually done
+    violation_amount = Column(Float)  # Monetary amount of violation (if applicable)
+    
+    # Exception description
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=False)
+    violation_details = Column(JSON, nullable=False)  # Detailed violation information
+    # Example violation_details structure:
+    # {
+    #   "rule_path": "booking_limits.max_fare_amount",
+    #   "policy_value": 1000,
+    #   "actual_value": 1500,
+    #   "violation_percentage": 50,
+    #   "context": {
+    #     "booking_class": "Business",
+    #     "route": "JFK-LAX",
+    #     "advance_days": 2
+    #   }
+    # }
+    
+    # Status and resolution
+    status = Column(String, default="OPEN")  # OPEN, UNDER_REVIEW, APPROVED_EXCEPTION, REJECTED, RESOLVED
+    requires_approval = Column(Boolean, default=True)
+    approval_request_id = Column(String)  # Reference to related approval request
+    
+    # Justification and resolution
+    user_justification = Column(Text)  # User's explanation for the violation
+    business_justification = Column(Text)  # Business reason for the exception
+    resolution_notes = Column(Text)  # How the exception was resolved
+    resolution_action = Column(String)  # APPROVED, REJECTED, POLICY_UPDATED, BOOKING_MODIFIED
+    
+    # Financial impact
+    cost_impact = Column(Float)  # Additional cost due to violation
+    savings_foregone = Column(Float)  # Potential savings lost due to violation
+    
+    # Timing
+    detected_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    resolved_at = Column(DateTime)
+    
+    # Resolution details
+    resolved_by = Column(String)  # User ID who resolved the exception
+    resolution_date = Column(DateTime)
+    
+    # Audit and compliance
+    is_recurring = Column(Boolean, default=False)  # If this is a repeated violation
+    previous_exceptions = Column(JSON, default=[])  # References to previous similar exceptions
+    compliance_notes = Column(Text)  # Notes for compliance/audit purposes
+    
+    # Relationships
+    booking = relationship("Booking", back_populates="policy_exceptions")
+    travel_policy = relationship("TravelPolicy", back_populates="policy_exceptions")
 
 
 # Create all tables
@@ -1196,3 +1405,369 @@ def validate_compensation_rule(rule_data: dict) -> dict:
         'errors': errors,
         'warnings': warnings
     }
+
+
+# New helper functions for Policy Compliance and Approval Workflow models
+
+
+def create_travel_policy(policy_data: dict, created_by: str) -> TravelPolicy:
+    """Create a new travel policy"""
+    db = SessionLocal()
+    try:
+        # Generate unique policy ID
+        policy_id = f"policy_{policy_data['policy_type'].lower()}_{datetime.now().timestamp()}"
+        
+        policy = TravelPolicy(
+            policy_id=policy_id,
+            policy_name=policy_data['policy_name'],
+            policy_version=policy_data.get('policy_version', '1.0'),
+            description=policy_data['description'],
+            policy_type=policy_data['policy_type'],
+            scope=policy_data.get('scope', 'GLOBAL'),
+            target_audience=policy_data.get('target_audience', {}),
+            rules=policy_data['rules'],
+            enforcement_level=policy_data.get('enforcement_level', 'STRICT'),
+            auto_compliance_check=policy_data.get('auto_compliance_check', True),
+            allow_exceptions=policy_data.get('allow_exceptions', True),
+            exception_requires_approval=policy_data.get('exception_requires_approval', True),
+            effective_date=policy_data['effective_date'],
+            expiration_date=policy_data.get('expiration_date'),
+            created_by=created_by
+        )
+        
+        db.add(policy)
+        db.commit()
+        db.refresh(policy)
+        return policy
+    finally:
+        db.close()
+
+
+def create_approval_request(request_data: dict, user_id: str) -> ApprovalRequest:
+    """Create a new approval request with escalation chain"""
+    db = SessionLocal()
+    try:
+        # Generate unique request ID
+        request_id = f"approval_{request_data['request_type'].lower()}_{datetime.now().timestamp()}"
+        
+        # Set escalation due date based on first level in chain
+        escalation_due = None
+        if request_data['escalation_chain']:
+            first_level = request_data['escalation_chain'][0]
+            timeout_hours = first_level.get('timeout_hours', 24)
+            escalation_due = datetime.utcnow() + timedelta(hours=timeout_hours)
+        
+        # Set current approver from first level
+        current_approver_id = None
+        current_approver_role = None
+        if request_data['escalation_chain']:
+            first_level = request_data['escalation_chain'][0]
+            current_approver_id = first_level.get('approver_id')
+            current_approver_role = first_level.get('approver_role')
+        
+        approval_request = ApprovalRequest(
+            request_id=request_id,
+            user_id=user_id,
+            booking_id=request_data.get('booking_id'),
+            policy_id=request_data.get('policy_id'),
+            request_type=request_data['request_type'],
+            title=request_data['title'],
+            description=request_data['description'],
+            justification=request_data.get('justification'),
+            request_data=request_data['request_data'],
+            priority=request_data.get('priority', 'MEDIUM'),
+            escalation_chain=request_data['escalation_chain'],
+            current_approver_id=current_approver_id,
+            current_approver_role=current_approver_role,
+            due_date=request_data.get('due_date'),
+            escalation_due=escalation_due,
+            approval_history=[{
+                "timestamp": datetime.utcnow().isoformat(),
+                "action": "CREATED",
+                "user_id": user_id,
+                "notes": f"Request created: {request_data['title']}"
+            }]
+        )
+        
+        db.add(approval_request)
+        db.commit()
+        db.refresh(approval_request)
+        return approval_request
+    finally:
+        db.close()
+
+
+def create_policy_exception(exception_data: dict, booking_id: str, policy_id: str) -> PolicyException:
+    """Create a new policy exception"""
+    db = SessionLocal()
+    try:
+        # Generate unique exception ID
+        exception_id = f"exception_{exception_data['exception_type'].lower()}_{datetime.now().timestamp()}"
+        
+        exception = PolicyException(
+            exception_id=exception_id,
+            booking_id=booking_id,
+            policy_id=policy_id,
+            exception_type=exception_data['exception_type'],
+            violation_category=exception_data['violation_category'],
+            severity=exception_data.get('severity', 'MEDIUM'),
+            violated_rule=exception_data['violated_rule'],
+            expected_value=exception_data.get('expected_value'),
+            actual_value=exception_data.get('actual_value'),
+            violation_amount=exception_data.get('violation_amount'),
+            title=exception_data['title'],
+            description=exception_data['description'],
+            violation_details=exception_data['violation_details'],
+            requires_approval=exception_data.get('requires_approval', True),
+            approval_request_id=exception_data.get('approval_request_id'),
+            user_justification=exception_data.get('user_justification'),
+            business_justification=exception_data.get('business_justification'),
+            cost_impact=exception_data.get('cost_impact'),
+            savings_foregone=exception_data.get('savings_foregone'),
+            is_recurring=exception_data.get('is_recurring', False),
+            previous_exceptions=exception_data.get('previous_exceptions', [])
+        )
+        
+        db.add(exception)
+        db.commit()
+        db.refresh(exception)
+        return exception
+    finally:
+        db.close()
+
+
+def get_active_travel_policies(scope: str = None, policy_type: str = None) -> list:
+    """Get active travel policies, optionally filtered by scope and type"""
+    db = SessionLocal()
+    try:
+        query = db.query(TravelPolicy).filter(TravelPolicy.is_active == True)
+        if scope:
+            query = query.filter(TravelPolicy.scope == scope)
+        if policy_type:
+            query = query.filter(TravelPolicy.policy_type == policy_type)
+        return query.order_by(TravelPolicy.created_at.desc()).all()
+    finally:
+        db.close()
+
+
+def get_pending_approval_requests(approver_id: str = None) -> list:
+    """Get pending approval requests, optionally filtered by approver"""
+    db = SessionLocal()
+    try:
+        query = db.query(ApprovalRequest).filter(ApprovalRequest.status == "PENDING")
+        if approver_id:
+            query = query.filter(ApprovalRequest.current_approver_id == approver_id)
+        return query.order_by(ApprovalRequest.priority.desc(), ApprovalRequest.created_at.asc()).all()
+    finally:
+        db.close()
+
+
+def get_policy_exceptions_by_booking(booking_id: str) -> list:
+    """Get all policy exceptions for a specific booking"""
+    db = SessionLocal()
+    try:
+        return db.query(PolicyException).filter(PolicyException.booking_id == booking_id).all()
+    finally:
+        db.close()
+
+
+def escalate_approval_request(request_id: str) -> ApprovalRequest:
+    """Escalate an approval request to the next level"""
+    db = SessionLocal()
+    try:
+        request = db.query(ApprovalRequest).filter(ApprovalRequest.request_id == request_id).first()
+        if not request:
+            raise ValueError(f"Approval request {request_id} not found")
+        
+        # Find next escalation level
+        next_level = request.escalation_level + 1
+        if next_level >= len(request.escalation_chain):
+            raise ValueError("Cannot escalate further - already at highest level")
+        
+        # Update to next level
+        next_level_info = request.escalation_chain[next_level]
+        request.escalation_level = next_level
+        request.current_approver_id = next_level_info.get('approver_id')
+        request.current_approver_role = next_level_info.get('approver_role')
+        request.status = "ESCALATED"
+        
+        # Update escalation due date
+        timeout_hours = next_level_info.get('timeout_hours', 48)
+        request.escalation_due = datetime.utcnow() + timedelta(hours=timeout_hours)
+        
+        # Add to approval history
+        history = list(request.approval_history) if request.approval_history else []
+        history.append({
+            "timestamp": datetime.utcnow().isoformat(),
+            "action": "ESCALATED",
+            "from_level": next_level - 1,
+            "to_level": next_level,
+            "new_approver": request.current_approver_id,
+            "reason": "Timeout or explicit escalation"
+        })
+        request.approval_history = history
+        
+        request.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(request)
+        return request
+    finally:
+        db.close()
+
+
+def approve_request(request_id: str, approver_id: str, notes: str = None) -> ApprovalRequest:
+    """Approve an approval request"""
+    db = SessionLocal()
+    try:
+        request = db.query(ApprovalRequest).filter(ApprovalRequest.request_id == request_id).first()
+        if not request:
+            raise ValueError(f"Approval request {request_id} not found")
+        
+        # Update request status
+        request.status = "APPROVED"
+        request.approved_by = approver_id
+        request.approved_at = datetime.utcnow()
+        request.resolved_at = datetime.utcnow()
+        request.approval_notes = notes
+        
+        # Add to approval history
+        history = list(request.approval_history) if request.approval_history else []
+        history.append({
+            "timestamp": datetime.utcnow().isoformat(),
+            "action": "APPROVED",
+            "user_id": approver_id,
+            "level": request.escalation_level,
+            "notes": notes or "Request approved"
+        })
+        request.approval_history = history
+        
+        request.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(request)
+        return request
+    finally:
+        db.close()
+
+
+def reject_request(request_id: str, approver_id: str, reason: str) -> ApprovalRequest:
+    """Reject an approval request"""
+    db = SessionLocal()
+    try:
+        request = db.query(ApprovalRequest).filter(ApprovalRequest.request_id == request_id).first()
+        if not request:
+            raise ValueError(f"Approval request {request_id} not found")
+        
+        # Update request status
+        request.status = "REJECTED"
+        request.approved_by = approver_id
+        request.resolved_at = datetime.utcnow()
+        request.rejection_reason = reason
+        
+        # Add to approval history
+        history = list(request.approval_history) if request.approval_history else []
+        history.append({
+            "timestamp": datetime.utcnow().isoformat(),
+            "action": "REJECTED",
+            "user_id": approver_id,
+            "level": request.escalation_level,
+            "reason": reason
+        })
+        request.approval_history = history
+        
+        request.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(request)
+        return request
+    finally:
+        db.close()
+
+
+def resolve_policy_exception(exception_id: str, resolved_by: str, resolution_action: str, notes: str = None) -> PolicyException:
+    """Resolve a policy exception"""
+    db = SessionLocal()
+    try:
+        exception = db.query(PolicyException).filter(PolicyException.exception_id == exception_id).first()
+        if not exception:
+            raise ValueError(f"Policy exception {exception_id} not found")
+        
+        # Update exception status
+        exception.status = "RESOLVED"
+        exception.resolved_by = resolved_by
+        exception.resolved_at = datetime.utcnow()
+        exception.resolution_date = datetime.utcnow()
+        exception.resolution_action = resolution_action
+        exception.resolution_notes = notes
+        exception.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(exception)
+        return exception
+    finally:
+        db.close()
+
+
+def check_policy_compliance(booking_data: dict, policies: list = None) -> list:
+    """
+    Check booking data against travel policies and return violations.
+    This is a simplified implementation - in practice, this would contain
+    sophisticated rule evaluation logic.
+    """
+    violations = []
+    
+    if policies is None:
+        # Get all active policies
+        policies = get_active_travel_policies()
+    
+    for policy in policies:
+        rules = policy.rules
+        
+        # Check booking limits
+        if 'booking_limits' in rules:
+            booking_limits = rules['booking_limits']
+            
+            # Check fare amount
+            if 'max_fare_amount' in booking_limits:
+                max_fare = booking_limits['max_fare_amount']
+                if booking_data.get('fare_amount', 0) > max_fare:
+                    violations.append({
+                        'policy_id': policy.policy_id,
+                        'violation_type': 'FARE_LIMIT_EXCEEDED',
+                        'rule_path': 'booking_limits.max_fare_amount',
+                        'expected_value': max_fare,
+                        'actual_value': booking_data.get('fare_amount'),
+                        'message': f"Fare amount ${booking_data.get('fare_amount')} exceeds policy limit of ${max_fare}"
+                    })
+            
+            # Check booking class
+            if 'allowed_booking_classes' in booking_limits:
+                allowed_classes = booking_limits['allowed_booking_classes']
+                actual_class = booking_data.get('booking_class', 'Economy')
+                if actual_class not in allowed_classes:
+                    violations.append({
+                        'policy_id': policy.policy_id,
+                        'violation_type': 'BOOKING_CLASS_VIOLATION',
+                        'rule_path': 'booking_limits.allowed_booking_classes',
+                        'expected_value': ', '.join(allowed_classes),
+                        'actual_value': actual_class,
+                        'message': f"Booking class '{actual_class}' not allowed. Permitted classes: {', '.join(allowed_classes)}"
+                    })
+            
+            # Check advance booking requirement
+            if 'advance_booking_days' in booking_limits:
+                required_days = booking_limits['advance_booking_days']
+                departure_date = booking_data.get('departure_date')
+                if departure_date:
+                    if isinstance(departure_date, str):
+                        departure_date = datetime.fromisoformat(departure_date)
+                    days_in_advance = (departure_date - datetime.utcnow()).days
+                    if days_in_advance < required_days:
+                        violations.append({
+                            'policy_id': policy.policy_id,
+                            'violation_type': 'ADVANCE_BOOKING_VIOLATION',
+                            'rule_path': 'booking_limits.advance_booking_days',
+                            'expected_value': f"{required_days} days",
+                            'actual_value': f"{days_in_advance} days",
+                            'message': f"Booking must be made at least {required_days} days in advance. Current advance: {days_in_advance} days"
+                        })
+    
+    return violations

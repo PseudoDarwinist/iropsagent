@@ -1,5 +1,5 @@
 # flight_agent/models.py
-from sqlalchemy import create_engine, Column, String, DateTime, JSON, Boolean, ForeignKey, Float, Integer
+from sqlalchemy import create_engine, Column, String, DateTime, JSON, Boolean, ForeignKey, Float, Integer, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime
@@ -28,6 +28,7 @@ class User(Base):
     bookings = relationship("Booking", back_populates="user")
     email_connections = relationship("EmailConnection", back_populates="user")
     wallet = relationship("Wallet", back_populates="user", uselist=False)
+    travelers = relationship("Traveler", back_populates="user")
 
 
 class EmailConnection(Base):
@@ -45,28 +46,118 @@ class EmailConnection(Base):
     user = relationship("User", back_populates="email_connections")
 
 
+class Flight(Base):
+    __tablename__ = "flights"
+    
+    flight_id = Column(String, primary_key=True)
+    airline = Column(String, nullable=False)
+    flight_number = Column(String, nullable=False)
+    departure_airport = Column(String, nullable=False)  # IATA airport code
+    arrival_airport = Column(String, nullable=False)  # IATA airport code
+    scheduled_departure = Column(DateTime, nullable=False)
+    scheduled_arrival = Column(DateTime, nullable=False)
+    actual_departure = Column(DateTime)
+    actual_arrival = Column(DateTime)
+    aircraft_type = Column(String)
+    flight_status = Column(String, default="SCHEDULED")  # SCHEDULED, DELAYED, CANCELLED, DIVERTED, COMPLETED
+    delay_minutes = Column(Integer, default=0)
+    gate = Column(String)
+    terminal = Column(String)
+    raw_flight_data = Column(JSON)  # Store complete flight data from external APIs
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    bookings = relationship("Booking", back_populates="flight")
+    trip_monitors = relationship("TripMonitor", back_populates="flight")
+
+
+class Traveler(Base):
+    __tablename__ = "travelers"
+    
+    traveler_id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.user_id"), nullable=False)
+    first_name = Column(String, nullable=False)
+    last_name = Column(String, nullable=False)
+    middle_name = Column(String)
+    date_of_birth = Column(DateTime)
+    passport_number = Column(String)
+    passport_country = Column(String)  # ISO country code
+    passport_expiry = Column(DateTime)
+    known_traveler_number = Column(String)  # TSA PreCheck, Global Entry, etc.
+    frequent_flyer_numbers = Column(JSON, default={})  # {"airline": "number", ...}
+    dietary_restrictions = Column(JSON, default=[])
+    mobility_assistance = Column(Boolean, default=False)
+    emergency_contact = Column(JSON, default={})  # {"name": "", "phone": "", "relationship": ""}
+    preferences = Column(JSON, default={})  # seat preferences, meal preferences, etc.
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("User", back_populates="travelers")
+    bookings = relationship("Booking", back_populates="traveler")
+
+
 class Booking(Base):
     __tablename__ = "bookings"
     
     booking_id = Column(String, primary_key=True)
     user_id = Column(String, ForeignKey("users.user_id"))
-    pnr = Column(String)  # Passenger Name Record / Confirmation Number
-    airline = Column(String)
-    flight_number = Column(String)
-    departure_date = Column(DateTime)
-    origin = Column(String)  # Airport code
-    destination = Column(String)  # Airport code
-    booking_class = Column(String)  # Economy, Business, First
+    flight_id = Column(String, ForeignKey("flights.flight_id"))
+    traveler_id = Column(String, ForeignKey("travelers.traveler_id"))
+    pnr = Column(String, nullable=False)  # Passenger Name Record / Confirmation Number
+    airline = Column(String, nullable=False)
+    flight_number = Column(String, nullable=False)
+    departure_date = Column(DateTime, nullable=False)
+    origin = Column(String, nullable=False)  # Airport code
+    destination = Column(String, nullable=False)  # Airport code
+    booking_class = Column(String, default="Economy")  # Economy, Business, First
     seat = Column(String)
-    status = Column(String, default="CONFIRMED")  # CONFIRMED, CANCELLED, COMPLETED
+    ticket_number = Column(String)
+    booking_reference = Column(String)  # Alternative booking reference
+    fare_basis = Column(String)
+    fare_amount = Column(Float)
+    currency = Column(String, default="USD")
+    status = Column(String, default="CONFIRMED")  # CONFIRMED, CANCELLED, COMPLETED, REFUNDED
     raw_data = Column(JSON)  # Store complete booking data
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_checked = Column(DateTime)
     
     # Relationships
     user = relationship("User", back_populates="bookings")
+    flight = relationship("Flight", back_populates="bookings")
+    traveler = relationship("Traveler", back_populates="bookings")
     disruption_events = relationship("DisruptionEvent", back_populates="booking")
     flight_holds = relationship("FlightHold", back_populates="booking")
+    trip_monitors = relationship("TripMonitor", back_populates="booking")
+
+
+class TripMonitor(Base):
+    __tablename__ = "trip_monitors"
+    
+    monitor_id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.user_id"), nullable=False)
+    booking_id = Column(String, ForeignKey("bookings.booking_id"), nullable=False)
+    flight_id = Column(String, ForeignKey("flights.flight_id"), nullable=False)
+    monitor_type = Column(String, default="FULL")  # FULL, DELAY_ONLY, CANCELLATION_ONLY
+    is_active = Column(Boolean, default=True)
+    check_frequency_minutes = Column(Integer, default=30)  # How often to check for updates
+    notification_preferences = Column(JSON, default={})  # {"email": True, "sms": True, "push": False}
+    last_check = Column(DateTime)
+    last_notification_sent = Column(DateTime)
+    escalation_rules = Column(JSON, default={})  # Rules for escalating notifications
+    auto_rebooking_enabled = Column(Boolean, default=False)
+    rebooking_preferences = Column(JSON, default={})  # Preferences for automatic rebooking
+    notes = Column(Text)  # User notes or special instructions
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    expires_at = Column(DateTime)  # When to stop monitoring (e.g., after flight completion + 24h)
+    
+    # Relationships
+    user = relationship("User", back_populates=None)
+    booking = relationship("Booking", back_populates="trip_monitors")
+    flight = relationship("Flight", back_populates="trip_monitors")
 
 
 class DisruptionEvent(Base):
@@ -78,12 +169,18 @@ class DisruptionEvent(Base):
     disruption_type = Column(String)  # CANCELLED, DELAYED, DIVERTED
     original_departure = Column(DateTime)
     new_departure = Column(DateTime)
+    delay_minutes = Column(Integer, default=0)
+    reason = Column(String)  # Weather, mechanical, crew, etc.
     rebooking_status = Column(String, default="PENDING")  # PENDING, IN_PROGRESS, COMPLETED, FAILED
     rebooking_options = Column(JSON)  # Store alternative flight options
     selected_option = Column(JSON)
     user_notified = Column(Boolean, default=False)
+    notification_sent_at = Column(DateTime)
     resolved_at = Column(DateTime)
     priority = Column(String, default="MEDIUM")  # HIGH, MEDIUM, LOW - for SMS filtering
+    compensation_eligible = Column(Boolean, default=False)
+    compensation_amount = Column(Float)
+    compensation_status = Column(String, default="PENDING")  # PENDING, APPROVED, PAID, DENIED
     
     # Relationships
     booking = relationship("Booking", back_populates="disruption_events")
@@ -341,6 +438,97 @@ def get_user_by_email(email: str) -> User:
         db.close()
 
 
+def create_flight(flight_data: dict) -> Flight:
+    """Create a new flight record"""
+    db = SessionLocal()
+    try:
+        # Generate unique flight ID
+        flight_id = f"{flight_data['airline']}_{flight_data['flight_number']}_{flight_data['scheduled_departure'].strftime('%Y%m%d')}"
+        
+        flight = Flight(
+            flight_id=flight_id,
+            airline=flight_data['airline'],
+            flight_number=flight_data['flight_number'],
+            departure_airport=flight_data['departure_airport'],
+            arrival_airport=flight_data['arrival_airport'],
+            scheduled_departure=flight_data['scheduled_departure'],
+            scheduled_arrival=flight_data['scheduled_arrival'],
+            actual_departure=flight_data.get('actual_departure'),
+            actual_arrival=flight_data.get('actual_arrival'),
+            aircraft_type=flight_data.get('aircraft_type'),
+            flight_status=flight_data.get('flight_status', 'SCHEDULED'),
+            delay_minutes=flight_data.get('delay_minutes', 0),
+            gate=flight_data.get('gate'),
+            terminal=flight_data.get('terminal'),
+            raw_flight_data=flight_data.get('raw_flight_data', {})
+        )
+        db.add(flight)
+        db.commit()
+        db.refresh(flight)
+        return flight
+    finally:
+        db.close()
+
+
+def create_traveler(user_id: str, traveler_data: dict) -> Traveler:
+    """Create a new traveler profile"""
+    db = SessionLocal()
+    try:
+        traveler = Traveler(
+            traveler_id=f"traveler_{user_id}_{datetime.now().timestamp()}",
+            user_id=user_id,
+            first_name=traveler_data['first_name'],
+            last_name=traveler_data['last_name'],
+            middle_name=traveler_data.get('middle_name'),
+            date_of_birth=traveler_data.get('date_of_birth'),
+            passport_number=traveler_data.get('passport_number'),
+            passport_country=traveler_data.get('passport_country'),
+            passport_expiry=traveler_data.get('passport_expiry'),
+            known_traveler_number=traveler_data.get('known_traveler_number'),
+            frequent_flyer_numbers=traveler_data.get('frequent_flyer_numbers', {}),
+            dietary_restrictions=traveler_data.get('dietary_restrictions', []),
+            mobility_assistance=traveler_data.get('mobility_assistance', False),
+            emergency_contact=traveler_data.get('emergency_contact', {}),
+            preferences=traveler_data.get('preferences', {})
+        )
+        db.add(traveler)
+        db.commit()
+        db.refresh(traveler)
+        return traveler
+    finally:
+        db.close()
+
+
+def create_trip_monitor(user_id: str, booking_id: str, flight_id: str, monitor_data: dict = None) -> TripMonitor:
+    """Create a new trip monitor"""
+    db = SessionLocal()
+    try:
+        if monitor_data is None:
+            monitor_data = {}
+            
+        monitor = TripMonitor(
+            monitor_id=f"monitor_{booking_id}_{datetime.now().timestamp()}",
+            user_id=user_id,
+            booking_id=booking_id,
+            flight_id=flight_id,
+            monitor_type=monitor_data.get('monitor_type', 'FULL'),
+            is_active=monitor_data.get('is_active', True),
+            check_frequency_minutes=monitor_data.get('check_frequency_minutes', 30),
+            notification_preferences=monitor_data.get('notification_preferences', {"email": True, "sms": False}),
+            escalation_rules=monitor_data.get('escalation_rules', {}),
+            auto_rebooking_enabled=monitor_data.get('auto_rebooking_enabled', False),
+            rebooking_preferences=monitor_data.get('rebooking_preferences', {}),
+            notes=monitor_data.get('notes'),
+            expires_at=monitor_data.get('expires_at')
+        )
+        db.add(monitor)
+        db.commit()
+        db.refresh(monitor)
+        return monitor
+    finally:
+        db.close()
+
+
 def create_booking(user_id: str, booking_data: dict) -> Booking:
     """Create a new booking"""
     db = SessionLocal()
@@ -356,6 +544,8 @@ def create_booking(user_id: str, booking_data: dict) -> Booking:
         booking = Booking(
             booking_id=f"{booking_data['pnr']}_{booking_data['flight_number']}_{datetime.now().timestamp()}",
             user_id=user_id,
+            flight_id=booking_data.get('flight_id'),
+            traveler_id=booking_data.get('traveler_id'),
             pnr=booking_data['pnr'],
             airline=booking_data['airline'],
             flight_number=booking_data['flight_number'],
@@ -364,6 +554,11 @@ def create_booking(user_id: str, booking_data: dict) -> Booking:
             destination=booking_data['destination'],
             booking_class=booking_data.get('class', 'Economy'),
             seat=booking_data.get('seat'),
+            ticket_number=booking_data.get('ticket_number'),
+            booking_reference=booking_data.get('booking_reference'),
+            fare_basis=booking_data.get('fare_basis'),
+            fare_amount=booking_data.get('fare_amount'),
+            currency=booking_data.get('currency', 'USD'),
             raw_data=safe_raw_data  # Use the safe version with strings instead of datetime
         )
         db.add(booking)
@@ -389,6 +584,70 @@ def get_upcoming_bookings(user_id: str = None):
         db.close()
 
 
+def get_active_trip_monitors(user_id: str = None):
+    """Get all active trip monitors, optionally filtered by user"""
+    db = SessionLocal()
+    try:
+        query = db.query(TripMonitor).filter(
+            TripMonitor.is_active == True,
+            TripMonitor.expires_at > datetime.utcnow() if TripMonitor.expires_at.isnot(None) else True
+        )
+        if user_id:
+            query = query.filter(TripMonitor.user_id == user_id)
+        return query.all()
+    finally:
+        db.close()
+
+
+def get_flight_by_details(airline: str, flight_number: str, departure_date: datetime) -> Flight:
+    """Get flight by airline, flight number, and departure date"""
+    db = SessionLocal()
+    try:
+        return db.query(Flight).filter(
+            Flight.airline == airline,
+            Flight.flight_number == flight_number,
+            Flight.scheduled_departure.between(
+                departure_date.replace(hour=0, minute=0, second=0),
+                departure_date.replace(hour=23, minute=59, second=59)
+            )
+        ).first()
+    finally:
+        db.close()
+
+
+def update_flight_status(flight_id: str, status_data: dict) -> Flight:
+    """Update flight status and timing information"""
+    db = SessionLocal()
+    try:
+        flight = db.query(Flight).filter(Flight.flight_id == flight_id).first()
+        if not flight:
+            raise ValueError(f"Flight {flight_id} not found")
+        
+        # Update flight status fields
+        if 'flight_status' in status_data:
+            flight.flight_status = status_data['flight_status']
+        if 'actual_departure' in status_data:
+            flight.actual_departure = status_data['actual_departure']
+        if 'actual_arrival' in status_data:
+            flight.actual_arrival = status_data['actual_arrival']
+        if 'delay_minutes' in status_data:
+            flight.delay_minutes = status_data['delay_minutes']
+        if 'gate' in status_data:
+            flight.gate = status_data['gate']
+        if 'terminal' in status_data:
+            flight.terminal = status_data['terminal']
+        if 'raw_flight_data' in status_data:
+            flight.raw_flight_data = status_data['raw_flight_data']
+        
+        flight.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(flight)
+        return flight
+    finally:
+        db.close()
+
+
 def create_disruption_event(booking_id: str, disruption_data: dict) -> DisruptionEvent:
     """Create a new disruption event"""
     db = SessionLocal()
@@ -399,7 +658,11 @@ def create_disruption_event(booking_id: str, disruption_data: dict) -> Disruptio
             disruption_type=disruption_data['type'],
             original_departure=disruption_data.get('original_departure'),
             new_departure=disruption_data.get('new_departure'),
-            priority=disruption_data.get('priority', 'MEDIUM')
+            delay_minutes=disruption_data.get('delay_minutes', 0),
+            reason=disruption_data.get('reason'),
+            priority=disruption_data.get('priority', 'MEDIUM'),
+            compensation_eligible=disruption_data.get('compensation_eligible', False),
+            compensation_amount=disruption_data.get('compensation_amount')
         )
         db.add(disruption)
         db.commit()
@@ -617,6 +880,7 @@ def convert_hold_to_booking(hold_id: str) -> FlightHold:
         return hold
     finally:
         db.close()
+
 
 
 def get_or_create_wallet(user_id: str) -> Wallet:

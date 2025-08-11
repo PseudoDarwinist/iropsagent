@@ -8,9 +8,9 @@ litellm
 httpx
 twilio # For SMS notifications
 sqlalchemy # For database models
+redis # For flight status caching
 
 streamlit # For web UI components
 pandas # For data handling in Streamlit
 flask # For admin web interface
 sqlalchemy # Database ORM
-

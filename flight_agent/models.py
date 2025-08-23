@@ -97,6 +97,112 @@ class Traveler(Base):
     # Relationships
     user = relationship("User", back_populates="travelers")
     bookings = relationship("Booking", back_populates="traveler")
+    care_notes = relationship("CareNote", back_populates="traveler")
+
+
+class CareNote(Base):
+    """
+    CareNote model for storing medical and care information for travelers.
+    Provides comprehensive care details that may be needed during travel emergencies
+    or for providing appropriate assistance to travelers with special needs.
+    """
+    __tablename__ = "care_notes"
+    
+    care_note_id = Column(String, primary_key=True)
+    traveler_id = Column(String, ForeignKey("travelers.traveler_id"), nullable=False)
+    
+    # Care type and basic information
+    care_type = Column(String, nullable=False)  # MEDICAL, DIETARY, MOBILITY, ELDERLY, CHILD, ASSISTANCE
+    title = Column(String, nullable=False)  # Brief title for the care note
+    description = Column(Text)  # Detailed description of care requirements
+    
+    # Medical and health information
+    medical_conditions = Column(JSON, default=[])  # List of medical conditions
+    # Example: ["diabetes", "heart condition", "epilepsy", "allergies"]
+    
+    medications = Column(JSON, default=[])  # Current medications with details
+    # Example: [{"name": "insulin", "dosage": "10 units", "frequency": "twice daily", "critical": true}]
+    
+    dietary_restrictions = Column(JSON, default=[])  # Dietary needs and restrictions
+    # Example: ["gluten-free", "no shellfish", "diabetic diet", "halal"]
+    
+    emergency_procedures = Column(JSON, default=[])  # Emergency procedures and protocols
+    # Example: [{"condition": "seizure", "procedure": "call 911, do not restrain", "medication": "emergency_kit"}]
+    
+    # Contact information for caregivers
+    caregiver_contacts = Column(JSON, default=[])  # Emergency contacts specific to care
+    # Example: [{"name": "Dr. Smith", "relationship": "primary physician", "phone": "+1234567890", "priority": 1}]
+    
+    # Visibility and privacy settings
+    visibility_settings = Column(JSON, default={})  # Privacy and access control
+    # Example: {"visible_to_airline": true, "visible_to_medical": true, "emergency_only": false}
+    
+    # Care level and priority
+    care_priority = Column(String, default="MEDIUM")  # HIGH, MEDIUM, LOW
+    assistance_required = Column(Boolean, default=False)  # Requires active assistance
+    emergency_critical = Column(Boolean, default=False)  # Critical for emergency response
+    
+    # Status and lifecycle
+    is_active = Column(Boolean, default=True)  # Active care note
+    verified_by = Column(String)  # Healthcare professional who verified the information
+    verified_at = Column(DateTime)  # When the care note was medically verified
+    expires_at = Column(DateTime)  # Optional expiration for temporary conditions
+    
+    # Metadata and tracking
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_reviewed = Column(DateTime)  # Last time the care note was reviewed/updated
+    review_frequency_days = Column(Integer, default=365)  # How often to review (default yearly)
+    
+    # Additional contextual information
+    travel_impact = Column(Text)  # How this affects travel (flights, accommodations, etc.)
+    special_instructions = Column(Text)  # Special instructions for travel staff
+    equipment_needed = Column(JSON, default=[])  # Medical equipment or assistance devices
+    # Example: ["wheelchair", "oxygen tank", "service animal", "medication refrigeration"]
+    
+    # Relationships
+    traveler = relationship("Traveler", back_populates="care_notes")
+    
+    def __repr__(self):
+        return f"<CareNote(id='{self.care_note_id}', traveler='{self.traveler_id}', type='{self.care_type}', priority='{self.care_priority}')>"
+    
+    def is_expired(self):
+        """Check if the care note has expired"""
+        if self.expires_at:
+            return datetime.utcnow() > self.expires_at
+        return False
+    
+    def needs_review(self):
+        """Check if the care note needs review based on review frequency"""
+        if not self.last_reviewed:
+            return True
+        days_since_review = (datetime.utcnow() - self.last_reviewed).days
+        return days_since_review >= self.review_frequency_days
+    
+    def get_emergency_contacts(self):
+        """Get emergency contacts sorted by priority"""
+        if not self.caregiver_contacts:
+            return []
+        return sorted(self.caregiver_contacts, key=lambda x: x.get('priority', 999))
+    
+    def get_critical_medications(self):
+        """Get medications marked as critical"""
+        if not self.medications:
+            return []
+        return [med for med in self.medications if med.get('critical', False)]
+    
+    def to_emergency_summary(self):
+        """Generate emergency summary with critical information"""
+        summary = {
+            'care_type': self.care_type,
+            'title': self.title,
+            'critical_conditions': [cond for cond in (self.medical_conditions or []) if 'critical' in str(cond).lower()],
+            'critical_medications': self.get_critical_medications(),
+            'emergency_procedures': self.emergency_procedures or [],
+            'emergency_contacts': self.get_emergency_contacts()[:3],  # Top 3 contacts
+            'special_instructions': self.special_instructions
+        }
+        return summary
 
 
 class Booking(Base):
@@ -1399,6 +1505,281 @@ def validate_compensation_rule(rule_data: dict) -> dict:
                         )
     finally:
         db.close()
+    
+    return {
+        'valid': len(errors) == 0,
+        'errors': errors,
+        'warnings': warnings
+    }
+
+
+# Helper functions for CareNote model
+
+
+def create_care_note(traveler_id: str, care_data: dict) -> CareNote:
+    """Create a new care note for a traveler"""
+    db = SessionLocal()
+    try:
+        # Generate unique care note ID
+        care_note_id = f"care_{care_data['care_type'].lower()}_{traveler_id}_{datetime.now().timestamp()}"
+        
+        care_note = CareNote(
+            care_note_id=care_note_id,
+            traveler_id=traveler_id,
+            care_type=care_data['care_type'],
+            title=care_data['title'],
+            description=care_data.get('description'),
+            medical_conditions=care_data.get('medical_conditions', []),
+            medications=care_data.get('medications', []),
+            dietary_restrictions=care_data.get('dietary_restrictions', []),
+            emergency_procedures=care_data.get('emergency_procedures', []),
+            caregiver_contacts=care_data.get('caregiver_contacts', []),
+            visibility_settings=care_data.get('visibility_settings', {}),
+            care_priority=care_data.get('care_priority', 'MEDIUM'),
+            assistance_required=care_data.get('assistance_required', False),
+            emergency_critical=care_data.get('emergency_critical', False),
+            verified_by=care_data.get('verified_by'),
+            verified_at=care_data.get('verified_at'),
+            expires_at=care_data.get('expires_at'),
+            review_frequency_days=care_data.get('review_frequency_days', 365),
+            travel_impact=care_data.get('travel_impact'),
+            special_instructions=care_data.get('special_instructions'),
+            equipment_needed=care_data.get('equipment_needed', [])
+        )
+        
+        db.add(care_note)
+        db.commit()
+        db.refresh(care_note)
+        return care_note
+    finally:
+        db.close()
+
+
+def get_care_notes_by_traveler(traveler_id: str, active_only: bool = True) -> list:
+    """Get all care notes for a specific traveler"""
+    db = SessionLocal()
+    try:
+        query = db.query(CareNote).filter(CareNote.traveler_id == traveler_id)
+        if active_only:
+            query = query.filter(CareNote.is_active == True)
+        return query.order_by(CareNote.care_priority.desc(), CareNote.created_at.desc()).all()
+    finally:
+        db.close()
+
+
+def get_care_note_by_id(care_note_id: str) -> CareNote:
+    """Get a specific care note by ID"""
+    db = SessionLocal()
+    try:
+        return db.query(CareNote).filter(CareNote.care_note_id == care_note_id).first()
+    finally:
+        db.close()
+
+
+def update_care_note(care_note_id: str, updated_data: dict) -> CareNote:
+    """Update an existing care note"""
+    db = SessionLocal()
+    try:
+        care_note = db.query(CareNote).filter(CareNote.care_note_id == care_note_id).first()
+        if not care_note:
+            raise ValueError(f"Care note {care_note_id} not found")
+        
+        # Update fields if provided
+        if 'care_type' in updated_data:
+            care_note.care_type = updated_data['care_type']
+        if 'title' in updated_data:
+            care_note.title = updated_data['title']
+        if 'description' in updated_data:
+            care_note.description = updated_data['description']
+        if 'medical_conditions' in updated_data:
+            care_note.medical_conditions = updated_data['medical_conditions']
+        if 'medications' in updated_data:
+            care_note.medications = updated_data['medications']
+        if 'dietary_restrictions' in updated_data:
+            care_note.dietary_restrictions = updated_data['dietary_restrictions']
+        if 'emergency_procedures' in updated_data:
+            care_note.emergency_procedures = updated_data['emergency_procedures']
+        if 'caregiver_contacts' in updated_data:
+            care_note.caregiver_contacts = updated_data['caregiver_contacts']
+        if 'visibility_settings' in updated_data:
+            care_note.visibility_settings = updated_data['visibility_settings']
+        if 'care_priority' in updated_data:
+            care_note.care_priority = updated_data['care_priority']
+        if 'assistance_required' in updated_data:
+            care_note.assistance_required = updated_data['assistance_required']
+        if 'emergency_critical' in updated_data:
+            care_note.emergency_critical = updated_data['emergency_critical']
+        if 'is_active' in updated_data:
+            care_note.is_active = updated_data['is_active']
+        if 'verified_by' in updated_data:
+            care_note.verified_by = updated_data['verified_by']
+        if 'verified_at' in updated_data:
+            care_note.verified_at = updated_data['verified_at']
+        if 'expires_at' in updated_data:
+            care_note.expires_at = updated_data['expires_at']
+        if 'review_frequency_days' in updated_data:
+            care_note.review_frequency_days = updated_data['review_frequency_days']
+        if 'travel_impact' in updated_data:
+            care_note.travel_impact = updated_data['travel_impact']
+        if 'special_instructions' in updated_data:
+            care_note.special_instructions = updated_data['special_instructions']
+        if 'equipment_needed' in updated_data:
+            care_note.equipment_needed = updated_data['equipment_needed']
+        
+        # Always update the updated_at timestamp
+        care_note.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(care_note)
+        return care_note
+    finally:
+        db.close()
+
+
+def deactivate_care_note(care_note_id: str) -> CareNote:
+    """Deactivate a care note (soft delete)"""
+    db = SessionLocal()
+    try:
+        care_note = db.query(CareNote).filter(CareNote.care_note_id == care_note_id).first()
+        if not care_note:
+            raise ValueError(f"Care note {care_note_id} not found")
+        
+        care_note.is_active = False
+        care_note.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(care_note)
+        return care_note
+    finally:
+        db.close()
+
+
+def get_high_priority_care_notes(care_type: str = None, emergency_critical_only: bool = False) -> list:
+    """Get high priority care notes, optionally filtered by type and emergency criticality"""
+    db = SessionLocal()
+    try:
+        query = db.query(CareNote).filter(
+            CareNote.is_active == True,
+            CareNote.care_priority == "HIGH"
+        )
+        if care_type:
+            query = query.filter(CareNote.care_type == care_type)
+        if emergency_critical_only:
+            query = query.filter(CareNote.emergency_critical == True)
+        return query.order_by(CareNote.created_at.desc()).all()
+    finally:
+        db.close()
+
+
+def get_care_notes_needing_review() -> list:
+    """Get care notes that need review based on review frequency"""
+    db = SessionLocal()
+    try:
+        care_notes = db.query(CareNote).filter(CareNote.is_active == True).all()
+        return [note for note in care_notes if note.needs_review()]
+    finally:
+        db.close()
+
+
+def get_expired_care_notes() -> list:
+    """Get care notes that have expired"""
+    db = SessionLocal()
+    try:
+        care_notes = db.query(CareNote).filter(
+            CareNote.is_active == True,
+            CareNote.expires_at.isnot(None)
+        ).all()
+        return [note for note in care_notes if note.is_expired()]
+    finally:
+        db.close()
+
+
+def mark_care_note_reviewed(care_note_id: str) -> CareNote:
+    """Mark a care note as reviewed by updating the last_reviewed timestamp"""
+    db = SessionLocal()
+    try:
+        care_note = db.query(CareNote).filter(CareNote.care_note_id == care_note_id).first()
+        if not care_note:
+            raise ValueError(f"Care note {care_note_id} not found")
+        
+        care_note.last_reviewed = datetime.utcnow()
+        care_note.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(care_note)
+        return care_note
+    finally:
+        db.close()
+
+
+def validate_care_note_data(care_data: dict) -> dict:
+    """Validate care note data and return validation results"""
+    errors = []
+    warnings = []
+    
+    # Required field validation
+    required_fields = ['care_type', 'title']
+    for field in required_fields:
+        if field not in care_data or not care_data[field]:
+            errors.append(f"Field '{field}' is required")
+    
+    # Care type validation
+    valid_care_types = ['MEDICAL', 'DIETARY', 'MOBILITY', 'ELDERLY', 'CHILD', 'ASSISTANCE']
+    if 'care_type' in care_data and care_data['care_type'] not in valid_care_types:
+        errors.append(f"Invalid care_type. Must be one of: {', '.join(valid_care_types)}")
+    
+    # Priority validation
+    valid_priorities = ['HIGH', 'MEDIUM', 'LOW']
+    if 'care_priority' in care_data and care_data['care_priority'] not in valid_priorities:
+        errors.append(f"Invalid care_priority. Must be one of: {', '.join(valid_priorities)}")
+    
+    # Medications validation
+    if 'medications' in care_data and isinstance(care_data['medications'], list):
+        for i, med in enumerate(care_data['medications']):
+            if isinstance(med, dict):
+                if 'name' not in med:
+                    errors.append(f"Medication {i+1} missing required 'name' field")
+                if med.get('critical') and not med.get('dosage'):
+                    warnings.append(f"Critical medication '{med.get('name', 'Unknown')}' should include dosage information")
+    
+    # Caregiver contacts validation
+    if 'caregiver_contacts' in care_data and isinstance(care_data['caregiver_contacts'], list):
+        for i, contact in enumerate(care_data['caregiver_contacts']):
+            if isinstance(contact, dict):
+                if 'name' not in contact:
+                    errors.append(f"Caregiver contact {i+1} missing required 'name' field")
+                if 'phone' not in contact and 'email' not in contact:
+                    warnings.append(f"Caregiver contact '{contact.get('name', 'Unknown')}' should include phone or email")
+    
+    # Emergency procedures validation
+    if 'emergency_procedures' in care_data and isinstance(care_data['emergency_procedures'], list):
+        for i, procedure in enumerate(care_data['emergency_procedures']):
+            if isinstance(procedure, dict) and 'procedure' not in procedure:
+                errors.append(f"Emergency procedure {i+1} missing required 'procedure' field")
+    
+    # Expiration date validation
+    if 'expires_at' in care_data and care_data['expires_at']:
+        try:
+            if isinstance(care_data['expires_at'], str):
+                expiry_date = datetime.fromisoformat(care_data['expires_at'])
+            else:
+                expiry_date = care_data['expires_at']
+            
+            if expiry_date <= datetime.utcnow():
+                warnings.append("Care note expires in the past or very soon")
+        except (ValueError, TypeError):
+            errors.append("Invalid expires_at date format")
+    
+    # Review frequency validation
+    if 'review_frequency_days' in care_data:
+        try:
+            frequency = int(care_data['review_frequency_days'])
+            if frequency < 1:
+                errors.append("Review frequency must be at least 1 day")
+            if frequency > 1825:  # 5 years
+                warnings.append("Review frequency is very long (>5 years). Consider shorter intervals for safety.")
+        except (TypeError, ValueError):
+            errors.append("Review frequency must be a valid number")
     
     return {
         'valid': len(errors) == 0,
